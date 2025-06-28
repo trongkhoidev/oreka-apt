@@ -23,7 +23,7 @@ export interface NewsResponse {
 export class NewsService {
   private static instance: NewsService;
   private cache: { data: NewsArticle[]; timestamp: number } | null = null;
-  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  private readonly CACHE_DURATION = 10 * 60 * 1000; // 5 minutes
   private readonly API_URL = 'https://newsdata.io/api/1/latest?apikey=pub_9491759b91eb47f88a219cc3528d5356&q=crypto%20market';
 
   private constructor() { }

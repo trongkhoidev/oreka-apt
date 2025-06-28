@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 import { bid, claim, resolveMarket, getMarketDetails } from '../services/aptosMarketService';
 import MarketCharts from './charts/MarketCharts';
 import { PriceService } from '../services/PriceService';
+import { getAvailableTradingPairs } from '../config/tradingPairs';
 
 enum Side { Long, Short }
 enum Phase { Pending, Bidding, Maturity, Resolved, Canceled }
@@ -72,9 +73,11 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   // Fetch asset price
   useEffect(() => {
     if (!market?.pair_name) return;
+    const allowedPairs = getAvailableTradingPairs().map(p => p.pair);
+    if (!allowedPairs.includes(market.pair_name)) return;
     const priceService = PriceService.getInstance();
     let unsub = priceService.subscribeToWebSocketPrices((priceData) => {
-      if (priceData.symbol.startsWith(market.pair_name.split('/')[0])) {
+      if (priceData.symbol.replace('-', '/').toUpperCase() === market.pair_name.toUpperCase()) {
         setCurrentPrice(priceData.price);
       }
     }, [market.pair_name]);

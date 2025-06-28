@@ -32,24 +32,32 @@ import {
   NumberDecrementStepper,
   useColorModeValue,
   UnorderedList,
-  ListItem
+  ListItem,
+  Radio,
+  RadioGroup,
+  Stack,
+  Badge,
+  Flex
 } from '@chakra-ui/react';
-import { FaWallet, FaArrowUp, FaArrowDown, FaClock } from 'react-icons/fa';
-import { getAvailableTradingPairs } from '../config/tradingPairs';
+import { FaWallet, FaArrowUp, FaArrowDown, FaClock, FaGasPump, FaRocket, FaInfoCircle } from 'react-icons/fa';
+import { getAvailableTradingPairs, TradingPairInfo } from '../config/tradingPairs';
 import { PriceService } from '../services/PriceService';
 import { format } from 'date-fns-tz';
 import { useRouter } from 'next/router';
-import { deployMarket, getMarketsByOwner, MarketInfo } from '../services/aptosMarketService';
+import { 
+  deployMarket, 
+  getMarketsByOwner, 
+  MarketInfo, 
+  estimateDeployMarketGas, 
+  deployMarketWithGasSettings,
+  GasSpeed,
+  GasEstimate,
+  GAS_SPEED_LABELS,
+  GAS_SPEED_DESCRIPTIONS
+} from '../services/aptosMarketService';
 import MarketList from './MarketList';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import ConnectWallet from './ConnectWallet';
-
-interface Coin {
-  value: string;
-  label: string;
-  currentPrice: number;
-  priceFeedAddress: string;
-}
 
 const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
 
@@ -57,7 +65,7 @@ const Owner: React.FC = () => {
   const { connected, account, signAndSubmitTransaction } = useWallet();
   
   const [strikePrice, setStrikePrice] = useState('');
-  const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
+  const [selectedPair, setSelectedPair] = useState<TradingPairInfo | null>(null);
   const [maturityDate, setMaturityDate] = useState('');
   const [maturityTime, setMaturityTime] = useState('');
   const [biddingStartDate, setBiddingStartDate] = useState('');
@@ -69,6 +77,9 @@ const Owner: React.FC = () => {
   const [markets, setMarkets] = useState<MarketInfo[]>([]);
   const [loadingMarkets, setLoadingMarkets] = useState(false);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [gasEstimate, setGasEstimate] = useState<GasEstimate | null>(null);
+  const [selectedGasSpeed, setSelectedGasSpeed] = useState<GasSpeed>(GasSpeed.NORMAL);
+  const [isEstimatingGas, setIsEstimatingGas] = useState(false);
 
   const toast = useToast();
   const router = useRouter();
@@ -76,17 +87,11 @@ const Owner: React.FC = () => {
   const formBg = useColorModeValue('white', 'gray.700');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
 
-  const availableCoins: Coin[] = [
-    { value: 'BTCUSD', label: 'BTC/USD', currentPrice: 47406.92, priceFeedAddress: '0x1::pyth::BTC_USD' },
-    { value: 'ETHUSD', label: 'ETH/USD', currentPrice: 3521.45, priceFeedAddress: '0x1::pyth::ETH_USD' },
-    { value: 'LINKUSD', label: 'LINK/USD', currentPrice: 12.87, priceFeedAddress: '0x1::pyth::LINK_USD' },
-    { value: 'SNXUSD', label: 'SNX/USD', currentPrice: 0.65, priceFeedAddress: '0x1::pyth::SNX_USD' },
-    { value: 'WSTETHUSD', label: 'WSTETH/USD', currentPrice: 2000.0, priceFeedAddress: '0x1::pyth::WSTETH_USD' },
-  ];
+  const availablePairs: TradingPairInfo[] = getAvailableTradingPairs();
 
-  const handleCoinSelect = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const selected = availableCoins.find((coin) => coin.value === event.target.value);
-    setSelectedCoin(selected || null);
+  const handlePairSelect = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const selected = availablePairs.find((pair) => pair.pair === event.target.value);
+    setSelectedPair(selected || null);
     setCurrentPrice(null);
   };
 
@@ -104,16 +109,16 @@ const Owner: React.FC = () => {
   }, [connected, account]);
 
   const fetchPrices = useCallback(async () => {
-    if (!selectedCoin) return;
+    if (!selectedPair) return;
     try {
       const priceService = PriceService.getInstance();
-      const priceData = await priceService.fetchPrice(selectedCoin.label);
+      const priceData = await priceService.fetchPrice(selectedPair.pair);
       setCurrentPrice(priceData.price);
     } catch (error) {
       console.error('Error fetching price:', error);
-      setCurrentPrice(selectedCoin.currentPrice);
+      setCurrentPrice(null);
     }
-  }, [selectedCoin]);
+  }, [selectedPair]);
 
   useEffect(() => {
     fetchDeployedContracts();
@@ -123,9 +128,16 @@ const Owner: React.FC = () => {
     fetchPrices();
   }, [fetchPrices]);
 
+  // Estimate gas when form parameters change
+  useEffect(() => {
+    if (selectedPair && strikePrice && maturityDate && maturityTime && biddingStartDate && biddingStartTime && biddingEndDate && biddingEndTime) {
+      estimateGas();
+    }
+  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed]);
+
   const resetForm = () => {
     setStrikePrice('');
-    setSelectedCoin(null);
+    setSelectedPair(null);
     setMaturityDate('');
     setMaturityTime('');
     setBiddingStartDate('');
@@ -133,6 +145,36 @@ const Owner: React.FC = () => {
     setBiddingEndDate('');
     setBiddingEndTime('');
     setFeePercentage('1.0');
+    setGasEstimate(null);
+  };
+
+  const estimateGas = async () => {
+    if (!selectedPair || !strikePrice || !maturityDate || !maturityTime || !biddingStartDate || !biddingStartTime || !biddingEndDate || !biddingEndTime) {
+      return;
+    }
+    try {
+      setIsEstimatingGas(true);
+      const strikePriceInteger = Math.round(parseFloat(strikePrice) * STRIKE_PRICE_MULTIPLIER);
+      const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
+      const biddingStartTimestamp = Math.floor(new Date(`${biddingStartDate} ${biddingStartTime}`).getTime() / 1000);
+      const biddingEndTimestamp = Math.floor(new Date(`${biddingEndDate} ${biddingEndTime}`).getTime() / 1000);
+      const feeValue = Math.round(parseFloat(feePercentage) * 10);
+      const params = {
+        pairName: selectedPair.pair,
+        strikePrice: strikePriceInteger,
+        feePercentage: feeValue,
+        biddingStartTime: biddingStartTimestamp,
+        biddingEndTime: biddingEndTimestamp,
+        maturityTime: maturityTimestamp,
+      };
+      const estimate = await estimateDeployMarketGas(params, selectedGasSpeed);
+      setGasEstimate(estimate);
+    } catch (error: any) {
+      console.error('Error estimating gas:', error);
+      // Don't show toast for gas estimation errors as they're not critical
+    } finally {
+      setIsEstimatingGas(false);
+    }
   };
 
   const deployContract = async () => {
@@ -140,7 +182,7 @@ const Owner: React.FC = () => {
       toast({ title: 'Wallet not connected', description: 'Please connect your Aptos wallet first', status: 'error', duration: 3000, isClosable: true });
       return;
     }
-    if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime || !biddingStartDate || !biddingStartTime || !biddingEndDate || !biddingEndTime) {
+    if (!selectedPair || !strikePrice || !maturityDate || !maturityTime || !biddingStartDate || !biddingStartTime || !biddingEndDate || !biddingEndTime) {
       toast({ title: 'Missing required fields', description: 'Please fill in all required fields', status: 'error', duration: 3000, isClosable: true });
       return;
     }
@@ -152,14 +194,14 @@ const Owner: React.FC = () => {
       const biddingEndTimestamp = Math.floor(new Date(`${biddingEndDate} ${biddingEndTime}`).getTime() / 1000);
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
       const params = {
-        pairName: selectedCoin.label,
+        pairName: selectedPair.pair,
         strikePrice: strikePriceInteger,
         feePercentage: feeValue,
         biddingStartTime: biddingStartTimestamp,
         biddingEndTime: biddingEndTimestamp,
         maturityTime: maturityTimestamp,
       };
-      const txHash = await deployMarket(signAndSubmitTransaction as any, params);
+      const txHash = await deployMarketWithGasSettings(signAndSubmitTransaction as any, params, selectedGasSpeed);
       toast({ title: 'Market deployment transaction submitted!', description: `Transaction hash: ${txHash}`, status: 'info', duration: 5000, isClosable: true, });
       resetForm();
       setTimeout(() => fetchDeployedContracts(), 3000);
@@ -205,7 +247,7 @@ const Owner: React.FC = () => {
   const priceChange = getPriceChange();
 
   // Tính số trường đã nhập cho progress (Initial -> Creating)
-  const progressFields = [selectedCoin, strikePrice, biddingStartDate && biddingStartTime, biddingEndDate && biddingEndTime, maturityDate && maturityTime, feePercentage];
+  const progressFields = [selectedPair, strikePrice, biddingStartDate && biddingStartTime, biddingEndDate && biddingEndTime, maturityDate && maturityTime, feePercentage];
   const filledFields = progressFields.filter(Boolean).length;
   // Progress: Initial (0%), Creating (80%), Finished (100%)
   let progressStep = 0;
@@ -238,6 +280,14 @@ const Owner: React.FC = () => {
     setTimeout(() => setIsFinishing(false), 1200);
   };
 
+  // Helper: format date/time ngắn gọn (dd/MM HH:mm)
+  function formatShortDateTime(dateStr: string, timeStr: string) {
+    if (!dateStr || !timeStr) return '';
+    // dateStr: yyyy-mm-dd hoặc yyyy/MM/dd
+    const [y, m, d] = dateStr.includes('-') ? dateStr.split('-') : dateStr.split('/');
+    return `${d}/${m} ${timeStr}`;
+  }
+
   if (!connected || !account) {
     return (
       <Container maxW="container.xl" py={10}>
@@ -253,22 +303,24 @@ const Owner: React.FC = () => {
   return (
     <Box bg="#0A0B0F" minH="100vh" color="white">
       <Container maxW="1200px" py={12}>
-        <HStack align="start" spacing={10}>
-          {/* Form Section */}
-          <Box flex={2} bg="#181A20" borderRadius="2xl" boxShadow="lg" border="1px solid #23262f" p={10}>
-            <VStack spacing={7} align="stretch">
-              <Heading size="lg" mb={2} bgGradient="linear(to-r, #4F8CFF, #A770EF)" bgClip="text" fontWeight="extrabold" letterSpacing="tight" textShadow="0 0 24px #4F8CFF99">OREKA - Deploy New Market</Heading>
-              <Box bg="#23262f" borderRadius="xl" p={4} mb={2}>
-                <Text fontSize="md" color="#B0B3B8">
-                  <b>Note:</b> When creating a market, you&apos;re establishing a binary options contract where users can bid on whether the price will be above (LONG) or below (SHORT) the strike price at maturity. The fee you set (between 0.1% and 20%) will be applied to winning positions and distributed to you as the market creator.
+        {/* Flex chia 2 phần, có divider dọc */}
+        <Flex align="start" direction="row" w="full">
+          {/* Phần trái: Form nhập thông tin */}
+          <Box flex={2} bg="#181A20" borderRadius="2xl" boxShadow="lg" border="1px solid #23262f" p={6}>
+            <VStack spacing={5} align="stretch">
+              <Heading size="lg" mb={1} bgGradient="linear(to-r, #4F8CFF, #A770EF)" bgClip="text" fontWeight="extrabold" letterSpacing="tight" textShadow="0 0 24px #4F8CFF99">Deploy New Market</Heading>
+              <Box bgGradient="linear(to-r, #23262f, #1e2746)" borderRadius="lg" p={3} boxShadow="md" border="1.5px solid #4F8CFF" display="flex" alignItems="center" gap={2} mb={1}>
+                <FaInfoCircle color="#4F8CFF" size={18} style={{ marginRight: 8 }} />
+                <Text fontSize="sm" color="#B0B3B8" fontWeight="bold">
+                  <b>Note:</b> Create a market for users to bet on price (LONG/SHORT) at maturity. Your fee (0.1%–20%) applies to winners and is paid to you.
                 </Text>
               </Box>
               {/* Asset */}
               <Box>
                 <Text fontSize="lg" fontWeight="bold" mb={2} color="#E0E0E0">Select Asset</Text>
-                <Select placeholder="Select Trading Pair" value={selectedCoin?.value || ''} onChange={handleCoinSelect} bg="#23262f" border="1px solid #35373f" color="white" borderRadius="xl" h="48px" fontSize="lg" _placeholder={{ color: '#888' }} _hover={{ borderColor: '#4F8CFF' }} _focus={{ borderColor: '#4F8CFF', boxShadow: '0 0 0 1px #4F8CFF' }}>
-                  {availableCoins.map((coin) => (
-                    <option key={coin.value} value={coin.value} style={{ backgroundColor: '#23262f', color: 'white' }}>{coin.label}</option>
+                <Select placeholder="Select Asset" value={selectedPair?.pair || ''} onChange={handlePairSelect} bg="#23262f" border="1px solid #35373f" color="white" borderRadius="xl" h="48px" fontSize="lg" _placeholder={{ color: '#888' }} _hover={{ borderColor: '#4F8CFF' }} _focus={{ borderColor: '#4F8CFF', boxShadow: '0 0 0 1px #4F8CFF' }}>
+                  {availablePairs.map((pair) => (
+                    <option key={pair.pair} value={pair.pair} style={{ backgroundColor: '#23262f', color: 'white' }}>{pair.pair}</option>
                   ))}
                 </Select>
               </Box>
@@ -362,33 +414,139 @@ const Owner: React.FC = () => {
               </Box>
             </VStack>
           </Box>
-          {/* Preview Section */}
-          <Box flex={1} bg="#181A20" borderRadius="2xl" boxShadow="md" border="1px solid #23262f" p={8} minW="320px">
-            <Heading size="md" mb={4} color="#4F8CFF" letterSpacing="tight">Preview</Heading>
-            <VStack spacing={4} align="stretch">
-              <HStack justify="space-between"><Text color="#B0B3B8">Asset:</Text><Text color="white" fontWeight="bold">{selectedCoin?.label || '--'}</Text></HStack>
-              <HStack justify="space-between"><Text color="#B0B3B8">Strike Price:</Text>
-                <HStack>
-                  <Text color="white" fontWeight="bold">{strikePrice || '--'}</Text>
-                  {priceChange !== null && (
-                    <>
-                      {priceChange > 0 && <Icon as={FaArrowUp} color="green.400" />}
-                      {priceChange < 0 && <Icon as={FaArrowDown} color="red.400" />}
-                      <Text color={priceChange > 0 ? 'green.400' : priceChange < 0 ? 'red.400' : 'gray.400'} fontWeight="bold" fontSize="md">
-                        {Math.abs(priceChange).toFixed(2)}%
-                      </Text>
-                    </>
-                  )}
+          {/* Divider dọc */}
+          <Box width="2px" height="auto" minH="600px" mx={8} bgGradient="linear(to-b, #23262f, #35373f)" borderRadius="full" alignSelf="stretch" />
+          {/* Phần phải: 2 box xếp dọc */}
+          <Flex flex={1.5} direction="column" gap={6} minW="400px">
+            {/* Box Preview */}
+            <Box bg="#181A20" borderRadius="2xl" boxShadow="md" border="1px solid #23262f" p={8} minW="320px">
+              <Heading size="md" mb={4} color="#4F8CFF" letterSpacing="tight">Preview</Heading>
+              <VStack spacing={4} align="stretch">
+                <HStack justify="space-between"><Text color="#B0B3B8">Asset:</Text><Text color="white" fontWeight="bold">{selectedPair?.pair || '--'}</Text></HStack>
+                <HStack justify="space-between"><Text color="#B0B3B8">Strike Price:</Text>
+                  <HStack>
+                    <Text color="white" fontWeight="bold">{strikePrice || '--'}</Text>
+                    {priceChange !== null && (
+                      <>
+                        {priceChange > 0 && <Icon as={FaArrowUp} color="green.400" />}
+                        {priceChange < 0 && <Icon as={FaArrowDown} color="red.400" />}
+                        <Text color={priceChange > 0 ? 'green.400' : priceChange < 0 ? 'red.400' : 'gray.400'} fontWeight="bold" fontSize="md">
+                          {Math.abs(priceChange).toFixed(2)}%
+                        </Text>
+                      </>
+                    )}
+                  </HStack>
                 </HStack>
+                <HStack justify="space-between"><Text color="#B0B3B8">Current Price:</Text><Text color="#4F8CFF" fontWeight="bold">{currentPrice ? `$${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}</Text></HStack>
+                <HStack justify="space-between"><Text color="#B0B3B8">Time Bidding:</Text><Text color="white" fontWeight="bold">{biddingStartDate && biddingStartTime && biddingEndDate && biddingEndTime ? `${formatShortDateTime(biddingStartDate, biddingStartTime)} → ${formatShortDateTime(biddingEndDate, biddingEndTime)}` : '--'}</Text></HStack>
+                <HStack justify="space-between"><Text color="#B0B3B8">Maturity:</Text><Text color="white" fontWeight="bold">{maturityDate && maturityTime ? `${maturityDate} ${maturityTime}` : '--'}</Text></HStack>
+                <HStack justify="space-between"><Text color="#B0B3B8">Fee:</Text><Text color="white" fontWeight="bold">{feePercentage}%</Text></HStack>
+              </VStack>
+             
+            </Box>
+            {/* Box Deploy Speed + Network Fee */}
+            <Box bg="#181A20" borderRadius="2xl" boxShadow="md" border="1px solid #23262f" p={8} minW="320px">
+              <Text color="#B0B3B8" fontWeight="bold" fontSize="md" mb={3}>
+                Deploy Speed
+              </Text>
+              <HStack spacing={4} mb={6} align="stretch">
+                {[{
+                  label: 'Normal',
+                  icon: FaGasPump,
+                  color: '#4F8CFF',
+                  desc1: 'Standard',
+                  desc2: 'Low cost',
+                  value: GasSpeed.NORMAL,
+                  border: '2px solid #4F8CFF',
+                  shadow: '0 0 8px #4F8CFF33',
+                }, {
+                  label: 'Fast',
+                  icon: FaRocket,
+                  color: '#A770EF',
+                  desc1: 'Faster',
+                  desc2: 'Moderate cost',
+                  value: GasSpeed.FAST,
+                  border: '2px solid #A770EF',
+                  shadow: '0 0 8px #A770EF33',
+                }, {
+                  label: 'Instant',
+                  icon: FaArrowUp,
+                  color: '#ED5FA7',
+                  desc1: 'Highest',
+                  desc2: 'Premium cost',
+                  value: GasSpeed.INSTANT,
+                  border: '2px solid #ED5FA7',
+                  shadow: '0 0 8px #ED5FA733',
+                }].map(opt => (
+                  <Box
+                    as="button"
+                    key={opt.value}
+                    flex={1}
+                    minW={0}
+                    minH="120px"
+                    p={4}
+                    borderRadius="lg"
+                    display="flex"
+                    flexDirection="column"
+                    alignItems="center"
+                    justifyContent="center"
+                    border={selectedGasSpeed === opt.value ? opt.border : '1px solid #35373f'}
+                    bg={selectedGasSpeed === opt.value ? '#23262f' : 'transparent'}
+                    boxShadow={selectedGasSpeed === opt.value ? opt.shadow : 'none'}
+                    onClick={() => setSelectedGasSpeed(opt.value)}
+                    transition="all 0.2s"
+                    _hover={{ borderColor: opt.color, bg: '#23262f' }}
+                  >
+                    <Icon as={opt.icon} color={opt.color} boxSize={7} mb={2} />
+                    <Text color="white" fontWeight="bold" fontSize="lg">{opt.label}</Text>
+                    <Text color="gray.400" fontSize="sm" textAlign="center">{opt.desc1}<br />{opt.desc2}</Text>
+                  </Box>
+                ))}
               </HStack>
-              <HStack justify="space-between"><Text color="#B0B3B8">Current Price:</Text><Text color="#4F8CFF" fontWeight="bold">{currentPrice ? `$${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}</Text></HStack>
-              <HStack justify="space-between"><Text color="#B0B3B8">Bidding Start:</Text><Text color="white" fontWeight="bold">{biddingStartDate && biddingStartTime ? `${biddingStartDate} ${biddingStartTime}` : '--'}</Text></HStack>
-              <HStack justify="space-between"><Text color="#B0B3B8">Bidding End:</Text><Text color="white" fontWeight="bold">{biddingEndDate && biddingEndTime ? `${biddingEndDate} ${biddingEndTime}` : '--'}</Text></HStack>
-              <HStack justify="space-between"><Text color="#B0B3B8">Maturity:</Text><Text color="white" fontWeight="bold">{maturityDate && maturityTime ? `${maturityDate} ${maturityTime}` : '--'}</Text></HStack>
-              <HStack justify="space-between"><Text color="#B0B3B8">Fee:</Text><Text color="white" fontWeight="bold">{feePercentage}%</Text></HStack>
-            </VStack>
-          </Box>
-        </HStack>
+              {/* Gas Estimation */}
+              <Box bg="#23262f" borderRadius="lg" p={4}>
+                <HStack justify="space-between" mb={2}>
+                  <HStack>
+                    <Icon as={FaGasPump} color="#4F8CFF" />
+                    <Text color="#B0B3B8" fontSize="sm" fontWeight="bold">Network Fee</Text>
+                  </HStack>
+                  {isEstimatingGas && <Spinner size="sm" color="#4F8CFF" />}
+                </HStack>
+                {gasEstimate ? (
+                  <VStack spacing={2} align="stretch">
+                    <HStack justify="space-between">
+                      <Text color="gray.400" fontSize="xs">Gas Used:</Text>
+                      <Text color="white" fontSize="xs" fontWeight="bold">{gasEstimate.gasUsed.toLocaleString()} units</Text>
+                    </HStack>
+                    <HStack justify="space-between">
+                      <Text color="gray.400" fontSize="xs">Gas Price:</Text>
+                      <Text color="white" fontSize="xs" fontWeight="bold">{gasEstimate.gasUnitPrice} octas</Text>
+                    </HStack>
+                    <Divider borderColor="gray.600" />
+                    <HStack justify="space-between">
+                      <Text color="white" fontSize="sm" fontWeight="bold">Total Fee:</Text>
+                      <VStack align="end" spacing={0}>
+                        <Text color="#4F8CFF" fontSize="sm" fontWeight="bold">{gasEstimate.totalFee.toFixed(6)} APT</Text>
+                        <Text color="gray.400" fontSize="xs">≈ ${gasEstimate.totalFeeUSD.toFixed(2)}</Text>
+                      </VStack>
+                    </HStack>
+                    <HStack justify="space-between">
+                      <Text color="gray.400" fontSize="xs">Est. Time:</Text>
+                      <HStack>
+                        <Icon as={FaClock} color="yellow.400" size="xs" />
+                        <Text color="yellow.400" fontSize="xs" fontWeight="bold">{gasEstimate.estimatedTime}</Text>
+                      </HStack>
+                    </HStack>
+                  </VStack>
+                ) : (
+                  <Text color="gray.400" fontSize="sm">
+                    {isEstimatingGas ? 'Estimating gas...' : 'Fill form to estimate gas'}
+                  </Text>
+                )}
+              </Box>
+            </Box>
+          </Flex>
+        </Flex>
         {/* Progress Bar dưới cùng */}
         <Box mt={10} w="100%">
           <HStack spacing={4} justify="space-between" mb={2}>
@@ -401,8 +559,24 @@ const Owner: React.FC = () => {
           </Box>
         </Box>
         {/* Button Create Market dưới cùng */}
-        <Box mt={8} w="100%" display="flex" justifyContent="center">
-          <Button colorScheme="brand" onClick={deployContractWithCheck} isLoading={isDeploying} loadingText="Submitting..." size="lg" w="300px" borderRadius="xl" fontSize="xl" h="56px" _hover={{ bg: '#4F8CFF', color: 'white', boxShadow: '0 4px 16px #4F8CFF33' }} isDisabled={progress < 80 || !signAndSubmitTransaction}>Create market</Button>
+        <Box mt={8} w="100%" display="flex" flexDirection="column" alignItems="center" gap={4}>
+          
+          <Button 
+            colorScheme="brand" 
+            onClick={deployContractWithCheck} 
+            isLoading={isDeploying} 
+            loadingText="Submitting..." 
+            size="lg" 
+            w="300px" 
+            borderRadius="xl" 
+            fontSize="xl" 
+            h="56px" 
+            _hover={{ bg: '#4F8CFF', color: 'white', boxShadow: '0 4px 16px #4F8CFF33' }} 
+            isDisabled={progress < 80 || !signAndSubmitTransaction}
+            leftIcon={<FaRocket />}
+          >
+            {isDeploying ? 'Deploying Market...' : 'Create Market'}
+          </Button>
         </Box>
       </Container>
     </Box>

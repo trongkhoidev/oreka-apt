@@ -39,6 +39,7 @@ import { PriceService } from '../services/PriceService';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { useRouter } from 'next/router';
 import ConnectWallet from './ConnectWallet';
+import { getAvailableTradingPairs } from '../config/tradingPairs';
 
 interface Market {
   address: string;
@@ -84,12 +85,13 @@ const ListAddressOwner: React.FC = () => {
     { label: 'My Markets', value: 'my' },
     { label: 'My Holdings', value: 'holdings' },
   ];
-  const uniquePairs = Array.from(new Set(markets.map(m => m.pair_name)));
+  const allowedPairs = getAvailableTradingPairs().map(p => p.pair);
+  const uniquePairs = Array.from(new Set(markets.map(m => m.pair_name))).filter(pair => allowedPairs.includes(pair));
 
   useEffect(() => {
     // Lấy network từ biến môi trường hoặc fallback về 'localnet'
     const petraNetwork = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'localnet';
-    setNetwork(petraNetwork);
+      setNetwork(petraNetwork);
   }, []);
 
   const fetchMarkets = async () => {
@@ -161,8 +163,7 @@ const ListAddressOwner: React.FC = () => {
   }, [filter, walletAddress, network]);
 
   useEffect(() => {
-    let filtered = markets;
-    
+    let filtered = markets.filter(m => allowedPairs.includes(m.pair_name));
     // Apply search filter
     if (searchTerm) {
       filtered = filtered.filter(market => 
@@ -171,27 +172,25 @@ const ListAddressOwner: React.FC = () => {
         market.address.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
-    
     // Apply status filter
     if (filter === 'active') {
       filtered = filtered.filter(market => !market.is_resolved);
     } else if (filter === 'resolved') {
       filtered = filtered.filter(market => market.is_resolved);
     }
-    
     setFilteredMarkets(filtered);
-  }, [markets, searchTerm, filter]);
+  }, [markets, searchTerm, filter, allowedPairs]);
 
   // Real-time price update for all pairs
   useEffect(() => {
     if (!markets.length) return;
     const priceService = PriceService.getInstance();
-    const uniquePairs = Array.from(new Set(markets.map(m => m.pair_name)));
+    const pairsToSubscribe = Array.from(new Set(markets.map(m => m.pair_name))).filter(pair => allowedPairs.includes(pair));
     const unsub = priceService.subscribeToWebSocketPrices((priceData) => {
       setAssetPrices(prev => ({ ...prev, [priceData.symbol.replace('-', '/')]: priceData.price }));
-    }, uniquePairs);
+    }, pairsToSubscribe);
     return () => { if (unsub) unsub(); };
-  }, [markets]);
+  }, [markets, allowedPairs]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -327,14 +326,14 @@ const ListAddressOwner: React.FC = () => {
         <Flex direction="column" flex={1} minH={0} px={{ base: 2, md: 10 }}>
           <Box flex={1} minH={0}>
             <Box bg="dark.800" borderRadius="lg" overflow="hidden" minH="400px">
-              {loading ? (
-                <Box p={8} textAlign="center">
-                  <Spinner size="xl" />
+          {loading ? (
+            <Box p={8} textAlign="center">
+              <Spinner size="xl" />
                   <Text mt={4} color="white">Loading markets...</Text>
-                </Box>
-              ) : (
+            </Box>
+          ) : (
                 <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={0.5} >
-                  {paginatedMarkets.map((market) => {
+                  {paginatedMarkets.map((market, idx) => {
                     const details = marketDetails[market.address];
                     const long = details ? Number(details[8]) : 0;
                     const short = details ? Number(details[9]) : 0;
@@ -365,6 +364,9 @@ const ListAddressOwner: React.FC = () => {
                       biddingStatus = 'End';
                       biddingColor = '#B0B3B8';
                     }
+                    // Chọn ảnh động theo index: btc1.png...btc10.png
+                    const imgIndex = (idx % 10) + 1;
+                    const imgSrc = `/images/${baseToken}/${baseToken}${imgIndex}.png`;
                     return (
                       <Box
                         key={market._key || market.address}
@@ -398,10 +400,10 @@ const ListAddressOwner: React.FC = () => {
                         {/* Image + Phase badge */}
                         <Box position="relative" borderTopRadius="2xl" overflow="hidden" h="44%" minH="120px" bg="#23262f">
                           <img
-                            src={`/images/${baseToken}/${baseToken}1.png`}
+                            src={imgSrc}
                             alt={market.pair_name}
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            onError={e => { e.currentTarget.src = '/images/default-token.png'; }}
+                            onError={e => { e.currentTarget.src = `/images/${baseToken}-logo.png`; }}
                           />
                           <Badge position="absolute" top={2} left={2} colorScheme={phaseColor} fontSize="xs" px={3} py={1} borderRadius="md" zIndex={2} bg="#23262f" color="white" fontWeight="bold">{phase}</Badge>
                         </Box>
@@ -429,32 +431,32 @@ const ListAddressOwner: React.FC = () => {
                                 <img src={`/images/${baseToken}-logo.png`} alt={baseToken} style={{ width: '100%', height: '100%' }} />
                               </Box>
                               <Text color="#4F8CFF" fontWeight="bold" fontSize="sm">${assetPrice ? assetPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'}</Text>
-                            </HStack>
+                        </HStack>
                             <HStack spacing={2} align="center">
                               <Text color="white" fontWeight="bold" fontSize="sm">{(total / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 })} APT</Text>
                               <Icon as={FaRegClock} color={biddingColor} boxSize={4} />
                               <Text color={biddingColor} fontWeight="bold" fontSize="sm">{biddingStatus}</Text>
-                            </HStack>
+                        </HStack>
                           </Flex>
                         </Box>
-                      </Box>
+            </Box>
                     );
                   })}
                 </SimpleGrid>
-              )}
-              {!loading && filteredMarkets.length === 0 && (
-                <Box p={8} textAlign="center">
+          )}
+          {!loading && filteredMarkets.length === 0 && (
+            <Box p={8} textAlign="center">
                   <Text color="gray.500">No markets found. Try deploying a new market or check your filters.</Text>
-                </Box>
-              )}
             </Box>
+          )}
+        </Box>
           </Box>
           {/* Pagination luôn ở dưới cùng */}
           <Box mt={8} mb={4} textAlign="center">
             <Button onClick={() => setPage(page - 1)} isDisabled={page <= 1} mr={2}>Previous</Button>
             <Text as="span" mx={2}>Page {page} / {totalPages}</Text>
             <Button onClick={() => setPage(page + 1)} isDisabled={page >= totalPages}>Next</Button>
-          </Box>
+        </Box>
         </Flex>
       </Flex>
     </Flex>

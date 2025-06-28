@@ -8,6 +8,8 @@ export interface PriceData {
   timestamp: number;
 }
 
+import { getAvailableTradingPairs } from '../config/tradingPairs';
+
 export class PriceService {
   private static instance: PriceService;
   private priceSubscribers: ((data: PriceData) => void)[] = [];
@@ -38,14 +40,13 @@ export class PriceService {
    * @returns The formatted symbol
    */
   private formatSymbolForCoinbase(symbol: string): string {
-    if (!symbol.includes('-')) {
-      if (symbol.includes('/')) return symbol.replace('/', '-');
-  
-      const base = symbol.slice(0, -3);
-      const quote = symbol.slice(-3);
-      return `${base}-${quote}`;
+    // Only allow valid pairs
+    const allowedPairs = getAvailableTradingPairs().map(p => p.pair);
+    let formatted = symbol;
+    if (allowedPairs.includes(symbol)) {
+      formatted = symbol.replace('/', '-').toUpperCase();
     }
-    return symbol;
+    return formatted;
   }
   
   /**

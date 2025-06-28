@@ -15,7 +15,7 @@ export const networkConfig = {
     chainId: 1
   },
   testnet: {
-    name: 'testnet',
+    name: 'testnet', 
     nodeUrl: 'https://fullnode.testnet.aptoslabs.com',
     faucetUrl: 'https://faucet.testnet.aptoslabs.com',
     chainId: 2
