@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Container,
@@ -42,19 +42,25 @@ import ConnectWallet from './ConnectWallet';
 import { getAvailableTradingPairs } from '../config/tradingPairs';
 
 interface Market {
-  address: string;
   creator: string;
   pair_name: string;
   strike_price: number;
+  fee_percentage: number;
+  total_bids: number;
+  long_bids: number;
+  short_bids: number;
   total_amount: number;
   long_amount: number;
   short_amount: number;
+  result: number; // 0: LONG win, 1: SHORT win, 2: unresolved
   is_resolved: boolean;
-  result?: number;
+  is_canceled: boolean;
   bidding_start_time: number;
   bidding_end_time: number;
   maturity_time: number;
-  fee_percentage: number;
+  created_at: number;
+  final_price: number;
+  fee_withdrawn: boolean;
   _key?: string;
 }
 
@@ -71,7 +77,6 @@ const ListAddressOwner: React.FC = () => {
   const [page, setPage] = useState(1);
   const contractsPerPage = 9;
   const [marketDetails, setMarketDetails] = useState<Record<string, any>>({});
-  const [assetPrices, setAssetPrices] = useState<Record<string, number>>({});
   
   const toast = useToast();
   const bg = useColorModeValue('white', 'gray.800');
@@ -85,8 +90,8 @@ const ListAddressOwner: React.FC = () => {
     { label: 'My Markets', value: 'my' },
     { label: 'My Holdings', value: 'holdings' },
   ];
-  const allowedPairs = getAvailableTradingPairs().map(p => p.pair);
-  const uniquePairs = Array.from(new Set(markets.map(m => m.pair_name))).filter(pair => allowedPairs.includes(pair));
+  const allowedPairs = useMemo(() => getAvailableTradingPairs().map(p => p.pair), []);
+  const uniquePairs = useMemo(() => Array.from(new Set(markets.map(m => m.pair_name))).filter(pair => allowedPairs.includes(pair)), [markets, allowedPairs]);
 
   useEffect(() => {
     // Lấy network từ biến môi trường hoặc fallback về 'localnet'
@@ -107,29 +112,35 @@ const ListAddressOwner: React.FC = () => {
       }
       // Map sơ bộ
       const marketsData: Market[] = marketInfos.map((info, idx) => ({
-        address: info.market_address,
         creator: info.owner,
         pair_name: info.pair_name,
         strike_price: Number(info.strike_price),
+        fee_percentage: Number(info.fee_percentage),
+        total_bids: 0,
+        long_bids: 0,
+        short_bids: 0,
         total_amount: 0,
         long_amount: 0,
         short_amount: 0,
+        result: 2,
         is_resolved: false,
-        result: undefined,
+        is_canceled: false,
         bidding_start_time: Number(info.bidding_start_time),
         bidding_end_time: Number(info.bidding_end_time),
         maturity_time: Number(info.maturity_time),
-        fee_percentage: Number(info.fee_percentage),
+        created_at: Number(info.created_at),
+        final_price: 0,
+        fee_withdrawn: false,
         _key: info.market_address || String(idx)
       }));
       setMarkets(marketsData);
       // Fetch chi tiết từng market song song
       const detailsArr = await Promise.all(marketsData.map(async m => {
         try {
-          const details = await getMarketDetails(m.address);
-          return { address: m.address, details };
+          const details = await getMarketDetails(m._key || m.pair_name);
+          return { address: m._key || m.pair_name, details };
         } catch {
-          return { address: m.address, details: null };
+          return { address: m._key || m.pair_name, details: null };
         }
       }));
       const detailsMap: Record<string, any> = {};
@@ -137,19 +148,6 @@ const ListAddressOwner: React.FC = () => {
         if (details) detailsMap[address] = details;
       });
       setMarketDetails(detailsMap);
-      // Fetch giá asset cho từng pair
-      const priceService = PriceService.getInstance();
-      const priceArr = await Promise.all(marketsData.map(async m => {
-        try {
-          const priceData = await priceService.fetchPrice(m.pair_name.replace('/', '-'));
-          return { pair: m.pair_name, price: priceData.price };
-        } catch {
-          return { pair: m.pair_name, price: null };
-        }
-      }));
-      const priceMap: Record<string, number> = {};
-      priceArr.forEach(({ pair, price }) => { if (price) priceMap[pair] = price; });
-      setAssetPrices(priceMap);
     } catch (error) {
       console.error('Error fetching markets:', error);
       toast({ title: 'Error', description: 'Failed to fetch markets', status: 'error', duration: 3000, isClosable: true });
@@ -164,33 +162,20 @@ const ListAddressOwner: React.FC = () => {
 
   useEffect(() => {
     let filtered = markets.filter(m => allowedPairs.includes(m.pair_name));
-    // Apply search filter
     if (searchTerm) {
       filtered = filtered.filter(market => 
         market.pair_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         market.creator.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        market.address.toLowerCase().includes(searchTerm.toLowerCase())
+        (market._key && market._key.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
-    // Apply status filter
     if (filter === 'active') {
       filtered = filtered.filter(market => !market.is_resolved);
     } else if (filter === 'resolved') {
       filtered = filtered.filter(market => market.is_resolved);
     }
     setFilteredMarkets(filtered);
-  }, [markets, searchTerm, filter, allowedPairs]);
-
-  // Real-time price update for all pairs
-  useEffect(() => {
-    if (!markets.length) return;
-    const priceService = PriceService.getInstance();
-    const pairsToSubscribe = Array.from(new Set(markets.map(m => m.pair_name))).filter(pair => allowedPairs.includes(pair));
-    const unsub = priceService.subscribeToWebSocketPrices((priceData) => {
-      setAssetPrices(prev => ({ ...prev, [priceData.symbol.replace('-', '/')]: priceData.price }));
-    }, pairsToSubscribe);
-    return () => { if (unsub) unsub(); };
-  }, [markets, allowedPairs]);
+  }, [markets, searchTerm, filter]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -274,6 +259,13 @@ const ListAddressOwner: React.FC = () => {
   const totalPages = Math.ceil(filtered.length / contractsPerPage);
   const paginatedMarkets = filtered.slice((page - 1) * contractsPerPage, page * contractsPerPage);
 
+  // Cleanup effect khi component unmount
+  useEffect(() => {
+    return () => {
+      console.log('ListAddressOwner component unmounting');
+    };
+  }, []);
+
   if (!connected) {
     return (
       <Container maxW="container.xl" py={8}>
@@ -334,7 +326,7 @@ const ListAddressOwner: React.FC = () => {
           ) : (
                 <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={0.5} >
                   {paginatedMarkets.map((market, idx) => {
-                    const details = marketDetails[market.address];
+                    const details = marketDetails[market._key || market.pair_name];
                     const long = details ? Number(details[8]) : 0;
                     const short = details ? Number(details[9]) : 0;
                     const total = details ? Number(details[7]) : 0;
@@ -342,7 +334,6 @@ const ListAddressOwner: React.FC = () => {
                     const phase = getPhase(market);
                     const phaseColor = phase === 'Resolved' ? 'green' : phase === 'Bidding' ? 'blue' : phase === 'Maturity' ? 'orange' : phase === 'Expired' ? 'red' : 'yellow';
                     const baseToken = market.pair_name.split('/')[0].toLowerCase();
-                    const assetPrice = assetPrices[market.pair_name];
                     const strike = (market.strike_price / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     const maturity = new Date(market.maturity_time * 1000).toLocaleString();
                     const title = `${market.pair_name} will reach $${strike} by ${maturity}?`;
@@ -369,7 +360,7 @@ const ListAddressOwner: React.FC = () => {
                     const imgSrc = `/images/${baseToken}/${baseToken}${imgIndex}.png`;
                     return (
                       <Box
-                        key={market._key || market.address}
+                        key={market._key || market.pair_name}
                         px={5} py={4}
                         borderRadius="2xl"
                         boxShadow="lg"
@@ -386,7 +377,7 @@ const ListAddressOwner: React.FC = () => {
                           cursor: 'pointer',
                           bg: '#181A20',
                         }}
-                        onClick={() => router.push(`/customer/${market.address}`)}
+                        onClick={() => router.push(`/customer/${market._key || market.pair_name}`)}
                         position="relative"
                         minH="380px"
                         minW="320px"
@@ -430,7 +421,7 @@ const ListAddressOwner: React.FC = () => {
                               <Box boxSize="18px" borderRadius="full" overflow="hidden" bg="#23262f">
                                 <img src={`/images/${baseToken}-logo.png`} alt={baseToken} style={{ width: '100%', height: '100%' }} />
                               </Box>
-                              <Text color="#4F8CFF" fontWeight="bold" fontSize="sm">${assetPrice ? assetPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'}</Text>
+                              <Text color="#4F8CFF" fontWeight="bold" fontSize="sm">${'--'}</Text>
                         </HStack>
                             <HStack spacing={2} align="center">
                               <Text color="white" fontWeight="bold" fontSize="sm">{(total / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 })} APT</Text>
