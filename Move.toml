@@ -1,0 +1,16 @@
+[package]
+name = "yugo"
+version = "1.0.0"
+authors = []
+
+[addresses]
+yugo = "0xa8acbdde9b32669532958b41107bbd556c3ddd1cb66d5c0f3e90c227ee144abd"
+
+[dev-addresses]
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "aac45fbd431182559463c3a40499b922756d1164"
+subdir = "aptos-framework"
+
+[dev-dependencies]
