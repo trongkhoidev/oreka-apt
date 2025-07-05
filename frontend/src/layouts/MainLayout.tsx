@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Flex, Divider } from '@chakra-ui/react';
+import { Box } from '@chakra-ui/react';
 import NavigationSidebar from '../components/Navigation';
 import Topbar from '../components/Topbar';
 

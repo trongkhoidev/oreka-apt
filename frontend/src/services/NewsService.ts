@@ -14,6 +14,18 @@ export interface NewsArticle {
   category?: string;
 }
 
+interface NewsItem {
+  article_id?: string;
+  link?: string;
+  title: string;
+  description?: string;
+  pubDate: string;
+  source_id?: string;
+  source_name?: string;
+  image_url?: string;
+  category?: string[] | string;
+}
+
 export interface NewsResponse {
   articles: NewsArticle[];
   totalResults: number;
@@ -43,7 +55,7 @@ export class NewsService {
     try {
       const response = await fetch(this.API_URL);
       const data = await response.json();
-      const articles: NewsArticle[] = (data.results || []).map((item: any) => ({
+      const articles: NewsArticle[] = (data.results || []).map((item: NewsItem) => ({
         id: item.article_id || item.link,
         title: item.title,
         description: item.description || '',

@@ -2,8 +2,16 @@ import React from 'react';
 import { Box, VStack, HStack, Text, Button, Badge, Spinner, SimpleGrid } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
 
+interface Market {
+  id?: string;
+  object_address?: string;
+  pair_name?: string;
+  tradingPair?: string;
+  is_resolved?: boolean;
+}
+
 interface MarketListProps {
-  markets: any[];
+  markets: Market[];
   loading: boolean;
   onRefresh?: () => void;
   showPagination?: boolean;

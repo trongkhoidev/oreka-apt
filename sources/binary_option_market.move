@@ -44,8 +44,6 @@ module yugo::binary_option_market {
         result: u8,
         /// Flag indicating if the market has been resolved.
         is_resolved: bool,
-        /// Flag indicating if the market has been canceled.
-        is_canceled: bool,
         /// The timestamp when the bidding phase starts.
         bidding_start_time: u64,
         /// The timestamp when the bidding phase ends.
@@ -84,10 +82,6 @@ module yugo::binary_option_market {
         amount: u64,
     }
     #[event]
-    struct CancelEvent has drop, store {
-        owner: address,
-    }
-    #[event]
     struct InitializeEvent has drop, store {
         creator: address,
         pair_name: String,
@@ -104,7 +98,6 @@ module yugo::binary_option_market {
     const ENOT_IN_BIDDING_PHASE: u64 = 104;
     const EMARKET_NOT_RESOLVED: u64 = 105;
     const ENO_BID_FOUND: u64 = 106;
-    const EMARKET_CANCELED: u64 = 107;
     const EALREADY_CLAIMED: u64 = 108;
     const EINSUFFICIENT_AMOUNT: u64 = 109;
 
@@ -139,7 +132,6 @@ module yugo::binary_option_market {
             bids: table::new(),
             result: 2, // unresolved
             is_resolved: false,
-            is_canceled: false,
             bidding_start_time,
             bidding_end_time,
             maturity_time,
@@ -179,7 +171,6 @@ module yugo::binary_option_market {
     public entry fun bid(owner: &signer, market_addr: address, prediction: bool, amount: u64, now: u64) acquires Market {
         let market = borrow_global_mut<Market>(market_addr);
         assert!(!market.is_resolved, EMARKET_RESOLVED);
-        assert!(!market.is_canceled, EMARKET_CANCELED);
         assert!(now >= market.bidding_start_time && now < market.bidding_end_time, ENOT_IN_BIDDING_PHASE);
         assert!(amount > 0, EINSUFFICIENT_AMOUNT);
         let bidder_address = signer::address_of(owner);
@@ -226,18 +217,6 @@ module yugo::binary_option_market {
             resolver: signer::address_of(caller),
             final_price,
             result: market.result,
-        });
-    }
-
-    /// Cancels the market. Can only be called by the creator before resolution.
-    public entry fun cancel_market(owner: &signer, market_obj: Object<Market>, now: u64) acquires Market {
-        let market_address = object::object_address(&market_obj);
-        let market = borrow_global_mut<Market>(market_address);
-        assert!(market.creator == signer::address_of(owner), ENOT_OWNER);
-        assert!(!market.is_resolved, EMARKET_RESOLVED);
-        market.is_canceled = true;
-        event::emit(CancelEvent {
-            owner: signer::address_of(owner),
         });
     }
 
@@ -306,7 +285,6 @@ module yugo::binary_option_market {
         u64, // short_amount
         u8,  // result
         bool, // is_resolved
-        bool, // is_canceled
         u64, // bidding_start_time
         u64, // bidding_end_time
         u64, // maturity_time
@@ -327,7 +305,6 @@ module yugo::binary_option_market {
             market.short_amount,
             market.result,
             market.is_resolved,
-            market.is_canceled,
             market.bidding_start_time,
             market.bidding_end_time,
             market.maturity_time,

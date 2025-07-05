@@ -1,45 +1,23 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Container,
   Heading,
   VStack,
-  HStack,
   Text,
   Button,
-  Input,
-  InputGroup,
-  InputLeftElement,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  Badge,
   Spinner,
   useToast,
-  useColorModeValue,
-  Link,
-  IconButton,
-  Tooltip,
-  Tabs,
-  TabList,
-  Tab,
-  Select,
-  SimpleGrid,
-  Progress,
   Flex,
-  Icon
+  SimpleGrid,
 } from '@chakra-ui/react';
-import { SearchIcon, CopyIcon, ExternalLinkIcon } from '@chakra-ui/icons';
-import { FaHome, FaPlus, FaList, FaChartBar, FaUser, FaWallet, FaRegClock } from 'react-icons/fa';
-import { getMarketsByOwner, getAllMarkets, getMarketDetails } from '../services/aptosMarketService';
+import { getMarketsByOwner, getAllMarkets, getMarketDetails, getUserBid } from '../services/aptosMarketService';
 import { PriceService } from '../services/PriceService';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { useRouter } from 'next/router';
-import ConnectWallet from './ConnectWallet';
 import { getAvailableTradingPairs } from '../config/tradingPairs';
+import ListAddressMarketCard from './listaddressowner/ListAddressMarketCard';
+import ListAddressTabs from './listaddressowner/ListAddressTabs';
 
 interface Market {
   creator: string;
@@ -54,14 +32,13 @@ interface Market {
   short_amount: number;
   result: number; // 0: LONG win, 1: SHORT win, 2: unresolved
   is_resolved: boolean;
-  is_canceled: boolean;
   bidding_start_time: number;
   bidding_end_time: number;
   maturity_time: number;
-  created_at: number;
   final_price: number;
   fee_withdrawn: boolean;
   _key?: string;
+  market_address?: string;
 }
 
 const ListAddressOwner: React.FC = () => {
@@ -70,20 +47,20 @@ const ListAddressOwner: React.FC = () => {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [filteredMarkets, setFilteredMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filter, setFilter] = useState<'all' | 'my' | 'active' | 'resolved'>('all');
-  const [network, setNetwork] = useState<any>(null);
+  const [searchTerm] = useState('');
+  const [filter, setFilter] = useState<'all' | 'my' | 'active' | 'resolved' | 'holdings'>('all');
+  const [network, setNetwork] = useState<unknown>(null);
   const [pairFilter, setPairFilter] = useState('');
   const [page, setPage] = useState(1);
   const contractsPerPage = 9;
-  const [marketDetails, setMarketDetails] = useState<Record<string, any>>({});
+  const [marketDetails, setMarketDetails] = useState<Record<string, unknown[] | null>>({});
+  const [pairPrices, setPairPrices] = useState<Record<string, number>>({});
   
   const toast = useToast();
-  const bg = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
   const router = useRouter();
 
-  const tabList = [
+  type FilterType = 'all' | 'active' | 'resolved' | 'my' | 'holdings';
+  const tabList: { label: string; value: FilterType }[] = [
     { label: 'All Markets', value: 'all' },
     { label: 'Quests', value: 'active' },
     { label: 'Results', value: 'resolved' },
@@ -94,63 +71,67 @@ const ListAddressOwner: React.FC = () => {
   const uniquePairs = useMemo(() => Array.from(new Set(markets.map(m => m.pair_name))).filter(pair => allowedPairs.includes(pair)), [markets, allowedPairs]);
 
   useEffect(() => {
-    // Lấy network từ biến môi trường hoặc fallback về 'localnet'
-    const petraNetwork = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'localnet';
+    const petraNetwork = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'devnet';
       setNetwork(petraNetwork);
   }, []);
 
   const fetchMarkets = async () => {
     setLoading(true);
     try {
-      let marketInfos: any[] = [];
-      if (filter === 'my' && walletAddress) {
-        marketInfos = await getMarketsByOwner(walletAddress);
-      } else if (filter === 'all') {
-        marketInfos = await getAllMarkets();
-      } else {
-        marketInfos = [];
+      console.log('[ListAddressOwner] Fetching all markets...');
+      const marketInfos = await getAllMarkets();
+      console.log('[ListAddressOwner] marketInfos:', JSON.stringify(marketInfos));
+      if (!marketInfos || marketInfos.length === 0) {
+        setMarkets([]);
+        setMarketDetails({});
+        toast({ title: 'No contracts found', description: 'No markets deployed on this network. Please check if the contract is deployed to devnet.', status: 'warning', duration: 4000, isClosable: true });
+        return;
       }
-      // Map sơ bộ
-      const marketsData: Market[] = marketInfos.map((info, idx) => ({
+      // Fetch details for each market in parallel and merge
+      const detailsArr = await Promise.all(
+        marketInfos.map(async (info) => {
+          let details: unknown[] | null = null;
+          try {
+            console.log('[ListAddressOwner] Fetching details for market:', info.market_address);
+            details = await getMarketDetails(info.market_address);
+            console.log('[ListAddressOwner] Details for', info.market_address, ':', JSON.stringify(details));
+          } catch (e) {
+            console.warn(`[ListAddressOwner] No details for market ${info.market_address}:`, e);
+          }
+          return { info, details };
+        })
+      );
+      const marketsData: Market[] = detailsArr.map(({ info, details }) => ({
         creator: info.owner,
         pair_name: info.pair_name,
         strike_price: Number(info.strike_price),
         fee_percentage: Number(info.fee_percentage),
-        total_bids: 0,
-        long_bids: 0,
-        short_bids: 0,
-        total_amount: 0,
-        long_amount: 0,
-        short_amount: 0,
-        result: 2,
-        is_resolved: false,
-        is_canceled: false,
+        total_bids: details && Array.isArray(details) ? Number(details[4]) : 0,
+        long_bids: details && Array.isArray(details) ? Number(details[5]) : 0,
+        short_bids: details && Array.isArray(details) ? Number(details[6]) : 0,
+        total_amount: details && Array.isArray(details) ? Number(details[7]) : 0,
+        long_amount: details && Array.isArray(details) ? Number(details[8]) : 0,
+        short_amount: details && Array.isArray(details) ? Number(details[9]) : 0,
+        result: details && Array.isArray(details) ? Number(details[10]) : 2,
+        is_resolved: details && Array.isArray(details) ? Boolean(details[11]) : false,
         bidding_start_time: Number(info.bidding_start_time),
         bidding_end_time: Number(info.bidding_end_time),
         maturity_time: Number(info.maturity_time),
-        created_at: Number(info.created_at),
-        final_price: 0,
-        fee_withdrawn: false,
-        _key: info.market_address || String(idx)
+        final_price: details && Array.isArray(details) ? Number(details[15]) : 0,
+        fee_withdrawn: false, // If needed, fetch from resource
+        _key: info.market_address,
+        market_address: info.market_address,
       }));
       setMarkets(marketsData);
-      // Fetch chi tiết từng market song song
-      const detailsArr = await Promise.all(marketsData.map(async m => {
-        try {
-          const details = await getMarketDetails(m._key || m.pair_name);
-          return { address: m._key || m.pair_name, details };
-        } catch {
-          return { address: m._key || m.pair_name, details: null };
-        }
-      }));
-      const detailsMap: Record<string, any> = {};
-      detailsArr.forEach(({ address, details }) => {
-        if (details) detailsMap[address] = details;
+      // ... keep the rest of the logic unchanged
+      const detailsMap: Record<string, unknown[] | null> = {};
+      detailsArr.forEach(({ info, details }) => {
+        if (details) detailsMap[info.market_address] = details;
       });
       setMarketDetails(detailsMap);
     } catch (error) {
-      console.error('Error fetching markets:', error);
-      toast({ title: 'Error', description: 'Failed to fetch markets', status: 'error', duration: 3000, isClosable: true });
+      console.error('[ListAddressOwner] Error fetching markets:', error);
+      toast({ title: 'Error', description: 'Failed to fetch markets. Please check if the contract is deployed to the correct network (devnet/localnet).', status: 'error', duration: 4000, isClosable: true });
     } finally {
       setLoading(false);
     }
@@ -160,6 +141,41 @@ const ListAddressOwner: React.FC = () => {
     fetchMarkets();
   }, [filter, walletAddress, network]);
 
+  // Helper: get phase for a market (Pending, Bidding, Maturity, Resolved, Expired)
+  function getMarketPhase(market: Market) {
+    const now = Math.floor(Date.now() / 1000);
+    if (market.is_resolved) return 'Resolved';
+    if (now < market.bidding_start_time) return 'Pending';
+    if (now >= market.bidding_start_time && now < market.bidding_end_time) return 'Bidding';
+    if (now >= market.bidding_end_time && now < market.maturity_time && !market.is_resolved) return 'Maturity';
+    if (now >= market.maturity_time && !market.is_resolved) return 'Expired';
+    return 'Unknown';
+  }
+
+  // My Holdings filter state
+  const [myHoldingsLoading, setMyHoldingsLoading] = useState(false);
+  const [myHoldingsMarkets, setMyHoldingsMarkets] = useState<Market[]>([]);
+
+  // Refactor handleAddressClick: always use market.market_address for navigation
+  const handleAddressClick = useCallback((market: Market, marketDetails: unknown) => {
+    try {
+      // Always use market.market_address as contract address, fallback to empty string
+      const contractAddress = market.market_address || market._key || '';
+      console.log('[handleAddressClick] Navigating to contractAddress:', contractAddress);
+      if (!contractAddress) throw new Error('No valid contract address');
+      // Clear any existing stored contract data
+      localStorage.removeItem('contractData');
+      localStorage.removeItem('selectedContractAddress');
+      // Store for fallback/UX
+      localStorage.setItem('selectedContractAddress', contractAddress);
+      // Navigate to customer view
+      router.push(`/customer/${contractAddress}`);
+    } catch (error) {
+      console.error('Error preparing contract data:', error);
+    }
+  }, [router]);
+
+  // Filtering logic for tabs
   useEffect(() => {
     let filtered = markets.filter(m => allowedPairs.includes(m.pair_name));
     if (searchTerm) {
@@ -170,92 +186,101 @@ const ListAddressOwner: React.FC = () => {
       );
     }
     if (filter === 'active') {
-      filtered = filtered.filter(market => !market.is_resolved);
+      filtered = filtered.filter(market => {
+        const details = marketDetails[market._key || market.pair_name];
+        if (!Array.isArray(details)) return false;
+        const now = Math.floor(Date.now() / 1000);
+        const is_resolved = Boolean(details[11]);
+        const bidding_start_time = Number(details[13]);
+        const bidding_end_time = Number(details[14]);
+        if (is_resolved) return false;
+        if (now < bidding_start_time) return true; // Pending
+        if (now >= bidding_start_time && now < bidding_end_time) return true; // Bidding
+        return false;
+      });
     } else if (filter === 'resolved') {
-      filtered = filtered.filter(market => market.is_resolved);
+      filtered = filtered.filter(market => {
+        const details = marketDetails[market._key || market.pair_name];
+        if (!Array.isArray(details)) return false;
+        const now = Math.floor(Date.now() / 1000);
+        const is_resolved = Boolean(details[11]);
+        const bidding_end_time = Number(details[14]);
+        const maturity_time = Number(details[15]);
+        if (is_resolved) return false;
+        if (now >= bidding_end_time && now < maturity_time) return true; // Maturity
+        return false;
+      });
+    } else if (filter === 'my') {
+      filtered = filtered.filter(market => market.creator.toLowerCase() === walletAddress.toLowerCase());
+    } else if (filter === 'holdings') {
+      setMyHoldingsLoading(true);
+      Promise.all(filtered.map(async (market) => {
+        try {
+          const res = await getUserBid(walletAddress, market._key || '');
+          if (res && (Number(res[0]) > 0 || res[1])) return market;
+        } catch {}
+        return null;
+      })).then(results => {
+        setMyHoldingsMarkets(results.filter((m): m is Market => Boolean(m)));
+        setMyHoldingsLoading(false);
+      });
+      filtered = [];
     }
     setFilteredMarkets(filtered);
-  }, [markets, searchTerm, filter]);
+  }, [markets, searchTerm, filter, walletAddress, allowedPairs, marketDetails]);
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast({
-      title: 'Copied!',
-      description: 'Address copied to clipboard',
-      status: 'success',
-      duration: 2000,
-      isClosable: true,
-    });
-  };
+  // For My Holdings, use myHoldingsMarkets if filter is 'holdings'
+  const filtered = filter === 'holdings' ? myHoldingsMarkets.filter(m => !pairFilter || m.pair_name === pairFilter) : filteredMarkets.filter(market => !pairFilter || market.pair_name === pairFilter);
 
-  const formatAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
-  };
+  // Polling fetch price for all unique trading pairs every 20s
+  useEffect(() => {
+    if (!markets.length) return;
+    let isMounted = true;
+    let interval: NodeJS.Timeout | null = null;
 
-  const formatPrice = (price: number) => {
-    return `$${(price / 100000000).toFixed(2)}`;
-  };
+    const fetchPrices = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const pairs = Array.from(new Set(markets.map(m => m.pair_name)));
+      const priceResults = await Promise.all(
+        pairs.map(async (pair) => {
+          try {
+            const priceData = await PriceService.getInstance().fetchPrice(pair.replace('/', '-'));
+            return { pair, price: priceData.price };
+          } catch {
+            return { pair, price: undefined };
+          }
+        })
+      );
+      if (isMounted) {
+        const priceMap: Record<string, number> = {};
+        priceResults.forEach(({ pair, price }) => {
+          if (price !== undefined) priceMap[pair] = price;
+        });
+        // Chỉ update nếu giá thực sự thay đổi
+        setPairPrices(prev => {
+          const prevStr = JSON.stringify(prev);
+          const nextStr = JSON.stringify(priceMap);
+          return prevStr !== nextStr ? priceMap : prev;
+        });
+      }
+    };
 
-  const formatAmount = (amount: number) => {
-    return `${(amount / 100000000).toFixed(4)} APT`;
-  };
+    fetchPrices();
+    interval = setInterval(fetchPrices, 20000);
 
-  const formatTimestamp = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleString();
-  };
+    // Pause polling khi tab không active
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchPrices();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
 
-  const getStatusBadge = (market: Market) => {
-    const now = Math.floor(Date.now() / 1000);
-    
-    if (market.is_resolved) {
-      return <Badge colorScheme="green">Resolved</Badge>;
-    } else if (now < market.bidding_start_time) {
-      return <Badge colorScheme="yellow">Pending</Badge>;
-    } else if (now >= market.bidding_start_time && now < market.bidding_end_time) {
-      return <Badge colorScheme="blue">Bidding</Badge>;
-    } else if (now >= market.bidding_end_time && now < market.maturity_time) {
-      return <Badge colorScheme="orange">Maturity</Badge>;
-    } else {
-      return <Badge colorScheme="red">Expired</Badge>;
-    }
-  };
+    return () => {
+      isMounted = false;
+      if (interval) clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [markets]);
 
-  const getResultText = (market: Market) => {
-    if (!market.is_resolved) return 'N/A';
-    return market.result === 0 ? 'LONG' : 'SHORT';
-  };
-
-  // Helper: Tính phase từ thời gian
-  const getPhase = (market: any) => {
-    const now = Math.floor(Date.now() / 1000);
-    if (market.is_resolved) return 'Resolved';
-    if (now < market.bidding_start_time) return 'Pending';
-    if (now < market.bidding_end_time) return 'Bidding';
-    if (now < market.maturity_time) return 'Maturity';
-    return 'Expired';
-  };
-
-  // Helper: Tính phần trăm LONG/SHORT (giả lập nếu chưa có dữ liệu)
-  const getLongShortPercent = (market: any) => {
-    const long = Number(market.long_amount || 0);
-    const short = Number(market.short_amount || 0);
-    const total = long + short;
-    if (total === 0) return { long: 50, short: 50 };
-    return { long: (long / total) * 100, short: (short / total) * 100 };
-  };
-
-  // Helper: Countdown
-  const getCountdown = (timestamp: number) => {
-    const now = Date.now();
-    const diff = timestamp * 1000 - now;
-    if (diff <= 0) return 'Ended';
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
-    return `${h}h ${m}m ${s}s`;
-  };
-
-  const filtered = filteredMarkets.filter(market => !pairFilter || market.pair_name === pairFilter);
   const totalPages = Math.ceil(filtered.length / contractsPerPage);
   const paginatedMarkets = filtered.slice((page - 1) * contractsPerPage, page * contractsPerPage);
 
@@ -265,6 +290,25 @@ const ListAddressOwner: React.FC = () => {
       console.log('ListAddressOwner component unmounting');
     };
   }, []);
+
+  // Thêm hàm getPhaseColor
+  const getPhaseColor = (phase: string) => {
+    switch (phase) {
+      case 'Pending': return '#66FF00';
+      case 'Bidding': return '#4F8CFF'; 
+      case 'Maturity': return '#999999'; 
+      default: return '#A0A4AE';
+    }
+  };
+
+  // Helper: Get stable index for image based on unique contract key
+  function getStableIndex(key: string, max: number) {
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) {
+      hash = (hash * 31 + key.charCodeAt(i)) % 1000000007;
+    }
+    return (Math.abs(hash) % max) + 1;
+  }
 
   if (!connected) {
     return (
@@ -279,175 +323,54 @@ const ListAddressOwner: React.FC = () => {
 
   return (
     <Flex minH="100vh" bg="dark.900">
-      {/* Sidebar Navigation */}
-      {/* Main Content */}
       <Flex direction="column" flex={1} minH="100vh" bg="dark.900">
-        {/* Tabs and Filters */}
-        <Box px={{ base: 4, md: 10 }} pt={2} pb={4} w="full">
-          <Tabs variant="soft-rounded" colorScheme="brand">
-            <TabList display="flex" alignItems="center">
-              {tabList.map(tab => (
-                <Tab key={tab.value} onClick={() => setFilter(tab.value as any)} _selected={{ bg: 'brand.500', color: 'white' }}>{tab.label}</Tab>
-              ))}
-              <Box ml={2} minW="150px">
-                <Select
-                  placeholder="Pair"
-                  value={pairFilter}
-                  onChange={e => { setPairFilter(e.target.value); setFilter('all'); }}
-                  variant="unstyled"
-                  borderRadius="xl"
-                  bg="transparent"
-                  color="white"
-                  fontWeight="bold"
-                  fontSize="md"
-                  pl={3}
-                  py={2}
-                  _focus={{ boxShadow: 'none', bg: 'brand.500', color: 'white' }}
-                  _hover={{ bg: 'brand.600', color: 'white' }}
-                  style={{ minWidth: 120, border: 'none', outline: 'none', marginLeft: 0 }}
-                >
-                  {uniquePairs.map(pair => (
-                    <option key={pair} value={pair} style={{ color: '#222', background: '#fff' }}>{pair}</option>
-                  ))}
-                </Select>
-              </Box>
-            </TabList>
-          </Tabs>
-        </Box>
-        {/* Main Grid + Pagination (flex-grow) */}
+        {/* Tabs và filter */}
+        <ListAddressTabs
+          tabList={tabList}
+          filter={filter}
+          setFilter={(v: string) => setFilter(v as FilterType)}
+          pairFilter={pairFilter}
+          setPairFilter={(v: string) => setPairFilter(v)}
+          uniquePairs={uniquePairs}
+        />
+        {/* Main Grid + Pagination */}
         <Flex direction="column" flex={1} minH={0} px={{ base: 2, md: 10 }}>
           <Box flex={1} minH={0}>
             <Box bg="dark.800" borderRadius="lg" overflow="hidden" minH="400px">
-          {loading ? (
-            <Box p={8} textAlign="center">
-              <Spinner size="xl" />
+              {loading || (filter === 'holdings' && myHoldingsLoading) ? (
+                <Box p={8} textAlign="center">
+                  <Spinner size="xl" />
                   <Text mt={4} color="white">Loading markets...</Text>
-            </Box>
-          ) : (
-                <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={0.5} >
-                  {paginatedMarkets.map((market, idx) => {
-                    const details = marketDetails[market._key || market.pair_name];
-                    const long = details ? Number(details[8]) : 0;
-                    const short = details ? Number(details[9]) : 0;
-                    const total = details ? Number(details[7]) : 0;
-                    const percent = (long + short) === 0 ? { long: 50, short: 50 } : { long: (long / (long + short)) * 100, short: (short / (long + short)) * 100 };
-                    const phase = getPhase(market);
-                    const phaseColor = phase === 'Resolved' ? 'green' : phase === 'Bidding' ? 'blue' : phase === 'Maturity' ? 'orange' : phase === 'Expired' ? 'red' : 'yellow';
-                    const baseToken = market.pair_name.split('/')[0].toLowerCase();
-                    const strike = (market.strike_price / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    const maturity = new Date(market.maturity_time * 1000).toLocaleString();
-                    const title = `${market.pair_name} will reach $${strike} by ${maturity}?`;
-                    // Tính thời gian bidding
-                    const now = Math.floor(Date.now() / 1000);
-                    let biddingStatus = null;
-                    let biddingColor = '#4F8CFF';
-                    let biddingIcon = <Icon as={FaRegClock} color="#4F8CFF" mr={1} />;
-                    if (now < market.bidding_start_time) {
-                      biddingStatus = 'Pending';
-                      biddingColor = '#A770EF';
-                    } else if (now >= market.bidding_start_time && now < market.bidding_end_time) {
-                      const remain = market.bidding_end_time - now;
-                      const h = Math.floor(remain / 3600);
-                      const m = Math.floor((remain % 3600) / 60);
-                      const s = Math.floor(remain % 60);
-                      biddingStatus = `${h}h ${m}m ${s}s`;
-                    } else {
-                      biddingStatus = 'End';
-                      biddingColor = '#B0B3B8';
-                    }
-                    // Chọn ảnh động theo index: btc1.png...btc10.png
-                    const imgIndex = (idx % 10) + 1;
-                    const imgSrc = `/images/${baseToken}/${baseToken}${imgIndex}.png`;
-                    return (
-                      <Box
-                        key={market._key || market.pair_name}
-                        px={5} py={4}
-                        borderRadius="2xl"
-                        boxShadow="lg"
-                        bg="#181A20"
-                        border="2px solid transparent"
-                        style={{
-                          background: 'linear-gradient(#181A20, #181A20) padding-box, linear-gradient(90deg, #4F8CFF, #A770EF, #4F8CFF) border-box',
-                        }}
-                        transition="all 0.18s"
-                        _hover={{
-                          boxShadow: 'xl',
-                          borderColor: '#4F8CFF',
-                          transform: 'scale(1.025)',
-                          cursor: 'pointer',
-                          bg: '#181A20',
-                        }}
-                        onClick={() => router.push(`/customer/${market._key || market.pair_name}`)}
-                        position="relative"
-                        minH="380px"
-                        minW="320px"
-                        maxW="400px"
-                        w="100%"
-                        display="flex"
-                        flexDirection="column"
-                        justifyContent="stretch"
-                        alignItems="stretch"
-                      >
-                        {/* Image + Phase badge */}
-                        <Box position="relative" borderTopRadius="2xl" overflow="hidden" h="44%" minH="120px" bg="#23262f">
-                          <img
-                            src={imgSrc}
-                            alt={market.pair_name}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            onError={e => { e.currentTarget.src = `/images/${baseToken}-logo.png`; }}
-                          />
-                          <Badge position="absolute" top={2} left={2} colorScheme={phaseColor} fontSize="xs" px={3} py={1} borderRadius="md" zIndex={2} bg="#23262f" color="white" fontWeight="bold">{phase}</Badge>
-                        </Box>
-                        {/* Info section */}
-                        <Box px={3} pt={2} pb={2} flex={1} display="flex" flexDirection="column" justifyContent="space-between">
-                          <Text fontWeight="bold" fontSize="md" color="white" mb={2} noOfLines={2}>{title}</Text>
-                          {/* Bar long/short */}
-                          <HStack mb={1} spacing={2} align="center" px={1}>
-                            <Text color="#5FDCC6" fontWeight="bold" minW="36px" fontSize="sm" textAlign="right">{percent.long.toFixed(0)}%</Text>
-                            <Box flex={1} h="14px" borderRadius="full" bg="#23262f" position="relative" overflow="hidden">
-                              {/* Gradient bar: xanh (#00ea00) -> vàng (#f8ff8b) tại điểm long% -> hồng (#ff3a7a) */}
-                              <Box position="absolute" left={0} top={0} h="100%" w="100%" borderRadius="full" zIndex={2}
-                                style={{
-                                  background: `linear-gradient(90deg, #00ea00 0%, #f8ff8b ${percent.long}%, #ff3a7a ${percent.long}%, #ff3a7a 100%)`,
-                                  transition: 'background 0.4s',
-                                }}
-                              />
-                            </Box>
-                            <Text color="#ED5FA7" fontWeight="bold" minW="36px" fontSize="sm" textAlign="left">{percent.short.toFixed(0)}%</Text>
-                          </HStack>
-                          {/* Asset price + Total deposited + Bidding time */}
-                          <Flex align="center" justify="space-between" mt={2} mb={1}>
-                            <HStack spacing={2} align="center">
-                              <Box boxSize="18px" borderRadius="full" overflow="hidden" bg="#23262f">
-                                <img src={`/images/${baseToken}-logo.png`} alt={baseToken} style={{ width: '100%', height: '100%' }} />
-                              </Box>
-                              <Text color="#4F8CFF" fontWeight="bold" fontSize="sm">${'--'}</Text>
-                        </HStack>
-                            <HStack spacing={2} align="center">
-                              <Text color="white" fontWeight="bold" fontSize="sm">{(total / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 })} APT</Text>
-                              <Icon as={FaRegClock} color={biddingColor} boxSize={4} />
-                              <Text color={biddingColor} fontWeight="bold" fontSize="sm">{biddingStatus}</Text>
-                        </HStack>
-                          </Flex>
-                        </Box>
-            </Box>
-                    );
-                  })}
+                </Box>
+              ) : (
+                <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={3}>
+                  {paginatedMarkets.map((market) => (
+                    <ListAddressMarketCard
+                      key={market._key || market.pair_name}
+                      market={market}
+                      details={marketDetails[market._key || market.pair_name]}
+                      onClick={() => handleAddressClick(market, marketDetails[market._key || market.pair_name])}
+                      pairPrices={pairPrices}
+                      getMarketPhase={getMarketPhase}
+                      getPhaseColor={getPhaseColor}
+                      getStableIndex={getStableIndex}
+                    />
+                  ))}
                 </SimpleGrid>
-          )}
-          {!loading && filteredMarkets.length === 0 && (
-            <Box p={8} textAlign="center">
+              )}
+              {!loading && filteredMarkets.length === 0 && (
+                <Box p={8} textAlign="center">
                   <Text color="gray.500">No markets found. Try deploying a new market or check your filters.</Text>
+                </Box>
+              )}
             </Box>
-          )}
-        </Box>
           </Box>
-          {/* Pagination luôn ở dưới cùng */}
+          {/* Pagination */}
           <Box mt={8} mb={4} textAlign="center">
             <Button onClick={() => setPage(page - 1)} isDisabled={page <= 1} mr={2}>Previous</Button>
             <Text as="span" mx={2}>Page {page} / {totalPages}</Text>
             <Button onClick={() => setPage(page + 1)} isDisabled={page >= totalPages}>Next</Button>
-        </Box>
+          </Box>
         </Flex>
       </Flex>
     </Flex>

@@ -1,29 +1,44 @@
-import { Aptos, AptosConfig, Network, Account, AccountAddress, EntryFunctionArgument, TransactionPayloadEntryFunction } from '@aptos-labs/ts-sdk';
+// import only what is used
 import { FACTORY_MODULE_ADDRESS } from '@/config/contracts';
-import { getCurrentNetwork } from '../config/network';
+import { getAptosClient } from '../config/network';
+import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
 
-// This is the type for the payload of a transaction
-// It is compatible with what signAndSubmitTransaction expects
-export type EntryFunctionPayload = {
-    function: string;
-    typeArguments?: any[];
-    functionArguments: any[];
-};
+// Debug: Monkey-patch fetch to log stacktrace when calling /module/factory
+if (typeof window !== 'undefined' && window.fetch) {
+  const originalFetch = window.fetch;
+  window.fetch = function(...args) {
+    if (typeof args[0] === 'string' && args[0].includes('/module/factory')) {
+      console.trace('Fetch /module/factory called from:');
+    }
+    return originalFetch.apply(this, args);
+  };
+}
 
-export type InputTransactionData = {
-    data: EntryFunctionPayload;
-};
+// Export the type from wallet-adapter-core for use in other files
+export { InputTransactionData };
 
 // Aligned with the MarketInfo struct in factory.move
 export interface MarketInfo {
     market_address: string;
     owner: string;
     pair_name: string;
-    strike_price: string; // u64 can be large, using string
-    fee_percentage: string; // u64 can be large, using string
-    bidding_start_time: string; // u64 can be large, using string
-    bidding_end_time: string; // u64 can be large, using string
-    maturity_time: string; // u64 can be large, using string
+    strike_price: string;
+    fee_percentage: string;
+    bidding_start_time: string;
+    bidding_end_time: string;
+    maturity_time: string;
+    total_amount: string;
+    long_amount: string;
+    short_amount: string;
+    total_bids: string;
+    long_bids: string;
+    short_bids: string;
+    result: string;
+    is_resolved: boolean;
+    final_price: string;
+    fee_withdrawn: boolean;
+    created_at: string;
+    creator: string;
 }
 
 export interface DeployMarketParams {
@@ -33,29 +48,6 @@ export interface DeployMarketParams {
   biddingStartTime: number | string;
   biddingEndTime: number | string;
   maturityTime: number | string;
-}
-
-function mapNetworkNameToEnum(name: string): Network {
-  switch (name) {
-    case 'localnet':
-      return Network.LOCAL;
-    case 'devnet':
-      return Network.DEVNET;
-    case 'testnet':
-      return Network.TESTNET;
-    case 'mainnet':
-      return Network.MAINNET;
-    default:
-      return Network.DEVNET;
-  }
-}
-
-// Helper to get Aptos client with dynamic network
-export function getAptosClient() {
-  const network = getCurrentNetwork();
-  return new Aptos(new AptosConfig({
-    network: mapNetworkNameToEnum(network.name)
-  }));
 }
 
 // Gas estimation interface
@@ -126,7 +118,7 @@ export async function estimateDeployMarketGas(
     // Apply speed multiplier
     const adjustedGasUnitPrice = Math.floor(baseGasUnitPrice * GAS_SPEED_MULTIPLIERS[gasSpeed]);
 
-    // Simulate transaction using REST API directly
+    // Simulate transaction using REST API directly, now with a guaranteed correct fullnode URL
     const simulationResponse = await fetch(`${aptos.config.fullnode}/transactions/simulate`, {
       method: 'POST',
       headers: {
@@ -141,13 +133,16 @@ export async function estimateDeployMarketGas(
     });
 
     if (!simulationResponse.ok) {
-      throw new Error('Transaction simulation failed');
+      const errorText = await simulationResponse.text();
+      console.error('Transaction simulation failed:', errorText);
+      throw new Error(`Transaction simulation failed: ${errorText}`);
     }
 
     const simulationData = await simulationResponse.json();
     
     if (!simulationData[0] || simulationData[0].success === false) {
-      throw new Error('Transaction simulation failed');
+      console.error('Transaction simulation failed with data:', simulationData[0]?.vm_status);
+      throw new Error(`Transaction simulation failed: ${simulationData[0]?.vm_status}`);
     }
 
     const gasUsed = Number(simulationData[0].gas_used || 50000); // Default fallback
@@ -207,7 +202,7 @@ function getEstimatedConfirmationTime(gasSpeed: GasSpeed): string {
  * Deploy market with custom gas settings
  */
 export async function deployMarketWithGasSettings(
-  signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>,
+  signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
   params: DeployMarketParams,
   gasSpeed: GasSpeed = GasSpeed.NORMAL
 ): Promise<string> {
@@ -230,11 +225,11 @@ export async function deployMarketWithGasSettings(
         typeArguments: [],
         functionArguments: [
           pairName,
-          Number(strikePrice),
-          Number(feePercentage),
-          Number(biddingStartTime),
-          Number(biddingEndTime),
-          Number(maturityTime)
+          typeof strikePrice === 'string' ? parseInt(strikePrice, 10) : strikePrice,
+          typeof feePercentage === 'string' ? parseInt(feePercentage, 10) : feePercentage,
+          typeof biddingStartTime === 'string' ? parseInt(biddingStartTime, 10) : biddingStartTime,
+          typeof biddingEndTime === 'string' ? parseInt(biddingEndTime, 10) : biddingEndTime,
+          typeof maturityTime === 'string' ? parseInt(maturityTime, 10) : maturityTime
         ],
       }
     };
@@ -248,7 +243,11 @@ export async function deployMarketWithGasSettings(
     });
     
     const response = await signAndSubmitTransaction(transaction);
-    return response.hash;
+    // If response is unknown, try to access hash safely
+    if (response && typeof response === 'object' && 'hash' in response) {
+      return (response as { hash: string }).hash;
+    }
+    throw new Error('Transaction did not return a hash');
   } catch (error) {
     console.error('Error deploying market with gas settings:', error);
     throw new Error('Failed to deploy market');
@@ -259,7 +258,7 @@ export async function deployMarketWithGasSettings(
  * Deploy a new market by calling factory::deploy_market on Aptos chain.
  */
 export async function deployMarket(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>,
+    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
     params: DeployMarketParams
 ): Promise<string> {
   try {
@@ -278,19 +277,24 @@ export async function deployMarket(
         typeArguments: [],
         functionArguments: [
             pairName,
-            Number(strikePrice),
-            Number(feePercentage),
-            Number(biddingStartTime),
-            Number(biddingEndTime),
-            Number(maturityTime)
+            typeof strikePrice === 'string' ? parseInt(strikePrice, 10) : strikePrice,
+            typeof feePercentage === 'string' ? parseInt(feePercentage, 10) : feePercentage,
+            typeof biddingStartTime === 'string' ? parseInt(biddingStartTime, 10) : biddingStartTime,
+            typeof biddingEndTime === 'string' ? parseInt(biddingEndTime, 10) : biddingEndTime,
+            typeof maturityTime === 'string' ? parseInt(maturityTime, 10) : maturityTime
         ],
       }
     };
     
     const response = await signAndSubmitTransaction(transaction);
-    return response.hash;
+    // If response is unknown, try to access hash safely
+    if (response && typeof response === 'object' && 'hash' in response) {
+      return (response as { hash: string }).hash;
+    }
+    throw new Error('Transaction did not return a hash');
   } catch (error) {
     console.error('Error deploying market:', error);
+    if (error instanceof Error && error.message) throw new Error('Failed to deploy market: ' + error.message);
     throw new Error('Failed to deploy market');
   }
 }
@@ -298,34 +302,66 @@ export async function deployMarket(
 export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
   try {
     const aptos = getAptosClient();
-    const result: any = await aptos.view({
-      payload: {
-        function: `${FACTORY_MODULE_ADDRESS}::factory::get_contracts_by_owner`,
-        typeArguments: [],
-        functionArguments: [owner],
-      }
-    });
-    return result[0];
+    const payload = {
+      function: `${FACTORY_MODULE_ADDRESS}::factory::get_contracts_by_owner` as `${string}::${string}::${string}`,
+      type_arguments: [],
+      arguments: [owner],
+    };
+    console.log('[getMarketsByOwner] payload:', payload);
+    const result = await aptos.view({ payload });
+    console.log('[getMarketsByOwner] result:', result);
+    return result && result[0] ? (result[0] as MarketInfo[]) : [];
   } catch (error) {
-    console.warn('Error fetching markets by owner:', error);
+    console.error('[getMarketsByOwner] Error:', error);
     return [];
   }
 }
 
-export async function getMarketDetails(marketObjectAddress: string): Promise<any> {
-  const aptos = getAptosClient();
-  const result = await aptos.view({
-    payload: {
-      function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::get_market_details`,
-      typeArguments: [],
-      functionArguments: [marketObjectAddress],
+export async function getMarketDetails(marketObjectAddress: string): Promise<MarketInfo | null> {
+  try {
+    const resourceType = `${FACTORY_MODULE_ADDRESS}::binary_option_market::Market` as `${string}::${string}::${string}`;
+    const baseUrl = 'https://api.devnet.aptoslabs.com/v1/accounts';
+    const url = `${baseUrl}/${marketObjectAddress}/resource/${resourceType}`;
+    console.log('[getMarketDetails] Fetching official API:', url);
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
     }
-  });
-  return result;
+    const resource = await response.json();
+    if (!resource || !resource.data) {
+      throw new Error(`Market resource not found for address: ${marketObjectAddress}`);
+    }
+    const market = resource.data;
+    return {
+      market_address: marketObjectAddress,
+      owner: market.creator || '',
+      creator: market.creator || '',
+      pair_name: market.pair_name || '',
+      strike_price: market.strike_price ? String(market.strike_price) : '0',
+      fee_percentage: market.fee_percentage ? String(market.fee_percentage) : '0',
+      bidding_start_time: market.bidding_start_time ? String(market.bidding_start_time) : '0',
+      bidding_end_time: market.bidding_end_time ? String(market.bidding_end_time) : '0',
+      maturity_time: market.maturity_time ? String(market.maturity_time) : '0',
+      total_amount: market.total_amount ? String(market.total_amount) : '0',
+      long_amount: market.long_amount ? String(market.long_amount) : '0',
+      short_amount: market.short_amount ? String(market.short_amount) : '0',
+      total_bids: market.total_bids ? String(market.total_bids) : '0',
+      long_bids: market.long_bids ? String(market.long_bids) : '0',
+      short_bids: market.short_bids ? String(market.short_bids) : '0',
+      result: market.result !== undefined ? String(market.result) : '2',
+      is_resolved: !!market.is_resolved,
+      final_price: market.final_price ? String(market.final_price) : '0',
+      fee_withdrawn: !!market.fee_withdrawn,
+      created_at: market.created_at ? String(market.created_at) : '0',
+    };
+  } catch (error) {
+    console.error('[getMarketDetails] Error:', error, marketObjectAddress);
+    return null;
+  }
 }
 
 export async function bid(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>,
+    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
     marketAddress: string, 
     prediction: boolean, 
     amount: number
@@ -338,11 +374,15 @@ export async function bid(
         }
     };
     const response = await signAndSubmitTransaction(transaction);
-    return response.hash;
+    // If response is unknown, try to access hash safely
+    if (response && typeof response === 'object' && 'hash' in response) {
+      return (response as { hash: string }).hash;
+    }
+    throw new Error('Transaction did not return a hash');
 }
 
 export async function claim(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>,
+    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
     marketAddress: string
 ): Promise<string> {
     const transaction: InputTransactionData = {
@@ -353,11 +393,15 @@ export async function claim(
         }
     };
     const response = await signAndSubmitTransaction(transaction);
-    return response.hash;
+    // If response is unknown, try to access hash safely
+    if (response && typeof response === 'object' && 'hash' in response) {
+      return (response as { hash: string }).hash;
+    }
+    throw new Error('Transaction did not return a hash');
 }
 
 export async function resolveMarket(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>,
+    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
     marketAddress: string, 
     finalPrice: number
 ): Promise<string> {
@@ -369,11 +413,15 @@ export async function resolveMarket(
         }
     };
     const response = await signAndSubmitTransaction(transaction);
-    return response.hash;
+    // If response is unknown, try to access hash safely
+    if (response && typeof response === 'object' && 'hash' in response) {
+      return (response as { hash: string }).hash;
+    }
+    throw new Error('Transaction did not return a hash');
 }
 
 export async function withdrawFee(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>,
+    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
     marketAddress: string
 ): Promise<string> {
     const transaction: InputTransactionData = {
@@ -384,22 +432,62 @@ export async function withdrawFee(
         }
     };
     const response = await signAndSubmitTransaction(transaction);
-    return response.hash;
+    // If response is unknown, try to access hash safely
+    if (response && typeof response === 'object' && 'hash' in response) {
+      return (response as { hash: string }).hash;
+    }
+    throw new Error('Transaction did not return a hash');
+}
+
+// Utility to check if factory module exists before calling view function
+async function checkFactoryModuleExists(address: string): Promise<boolean> {
+  const url = `https://fullnode.devnet.aptoslabs.com/v1/accounts/${address}/module/factory`;
+  console.log('[checkFactoryModuleExists] Fetching endpoint:', url);
+  try {
+    const res = await fetch(url);
+    if (res.status === 200) return true;
+    console.error('[checkFactoryModuleExists] Not found:', url, 'status:', res.status);
+    return false;
+  } catch (e) {
+    console.error('[checkFactoryModuleExists] Error:', e);
+    return false;
+  }
 }
 
 export async function getAllMarkets(): Promise<MarketInfo[]> {
   try {
+    // Check if factory module exists first
+    const exists = await checkFactoryModuleExists(FACTORY_MODULE_ADDRESS);
+    if (!exists) {
+      throw new Error('Factory module does not exist at the configured address.');
+    }
     const aptos = getAptosClient();
-    const result: any = await aptos.view({
-      payload: {
-        function: `${FACTORY_MODULE_ADDRESS}::factory::get_all_markets`,
-        typeArguments: [],
-        functionArguments: [],
-      }
-    });
-    return result[0];
+    const payload = {
+      function: `${FACTORY_MODULE_ADDRESS}::factory::get_all_markets` as `${string}::${string}::${string}`,
+      type_arguments: [],
+      arguments: [],
+    };
+    console.log('[getAllMarkets] payload:', payload);
+    const result = await aptos.view({ payload });
+    console.log('[getAllMarkets] result:', result);
+    return result && result[0] ? (result[0] as MarketInfo[]) : [];
   } catch (error) {
-    console.warn('Error fetching all markets:', error);
+    console.error('[getAllMarkets] Error:', error);
     return [];
   }
+}
+
+export async function getUserBid(userAddress: string, marketAddress: string): Promise<[string, boolean]> {
+  const aptos = getAptosClient();
+  const result = await aptos.view({
+    payload: {
+      function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::get_user_bid`,
+      typeArguments: [],
+      functionArguments: [userAddress, marketAddress],
+    }
+  });
+  if (result && Array.isArray(result[0]) && result[0].length === 2) {
+    return [String(result[0][0]), Boolean(result[0][1])];
+  }
+  return ['0', false];
 } 

@@ -7,7 +7,7 @@ import {
   Text,
 } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
-import { FaHome, FaPlus, FaList, FaWallet, FaNewspaper } from 'react-icons/fa';
+import { FaHome, FaPlus, FaList, FaNewspaper } from 'react-icons/fa';
 import Link from 'next/link';
 
 const NavigationSidebar: React.FC = () => {

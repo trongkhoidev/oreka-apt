@@ -1,4 +1,5 @@
 import { getAllMarkets } from './aptosMarketService';
+import type { MarketInfo } from './aptosMarketService';
 import { NewsService } from './NewsService';
 
 export type SearchResult =
@@ -13,8 +14,8 @@ export class SearchService {
     try {
       const markets = await getAllMarkets();
       marketResults = markets
-        .filter((m: any) => m.pair_name?.toLowerCase().includes(lower))
-        .map((m: any) => ({
+        .filter((m: MarketInfo) => m.pair_name?.toLowerCase().includes(lower))
+        .map((m: MarketInfo) => ({
           type: 'market',
           id: m.market_address,
           title: m.pair_name,

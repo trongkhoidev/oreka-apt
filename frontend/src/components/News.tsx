@@ -510,7 +510,7 @@ const News: React.FC = () => {
                               py={0.5}
                               borderRadius="md"
                               bg="brand.900"
-                              color="brand.400"
+                              color="white"
                               fontSize="xs"
                               fontWeight="bold"
                             >

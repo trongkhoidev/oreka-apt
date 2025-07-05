@@ -3,8 +3,12 @@
     "@aptos-labs/ts-sdk": "^1.39.0",
     "@aptos-labs/wallet-adapter-core": "^5.7.1",
     "@aptos-labs/wallet-adapter-react": "^6.1.2",
+    "@martianwallet/aptos-wallet-adapter": "^0.0.5",
+    "@pontem/aptos-wallet-adapter": "^0.10.1",
     "aptos": "^1.21.0",
     "aptos-wallet-adapter": "^0.4.4",
-    "petra-plugin-wallet-adapter": "^0.4.5"
+    "chart.js": "^4.5.0",
+    "petra-plugin-wallet-adapter": "^0.4.5",
+    "react-chartjs-2": "^5.3.0"
   }
 }

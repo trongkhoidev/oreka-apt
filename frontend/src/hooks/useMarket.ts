@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getMarketDetails } from '@/services/aptosMarketService';
 
 export function useMarket(marketObjectAddress: string) {
-  const [market, setMarket] = useState<any>(null);
+  const [market, setMarket] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -12,8 +12,8 @@ export function useMarket(marketObjectAddress: string) {
     try {
       const data = await getMarketDetails(marketObjectAddress);
       setMarket(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch market');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch market');
     } finally {
       setLoading(false);
     }

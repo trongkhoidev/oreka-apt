@@ -1,14 +1,9 @@
 import type { AppProps } from 'next/app';
 import { ChakraProvider, Box } from '@chakra-ui/react';
 import { AptosWalletAdapterProvider } from "@aptos-labs/wallet-adapter-react";
-import { PetraWallet } from "petra-plugin-wallet-adapter";
-import { MartianWallet } from "@martianwallet/aptos-wallet-adapter";
-import { PontemWalletAdapter } from "@pontem/aptos-wallet-adapter";
 import theme from '../themes/theme';
 import NavigationSidebar from '../components/Navigation';
 import Topbar from '../components/Topbar';
-// import { useRouter } from 'next/router';
-// import { BloctoWallet } from "@blocto/aptos-wallet-adapter-plugin";
 
 export default function App({ Component, pageProps }: AppProps) {
   return (

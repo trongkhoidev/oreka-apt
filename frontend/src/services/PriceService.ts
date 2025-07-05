@@ -8,6 +8,18 @@ export interface PriceData {
   timestamp: number;
 }
 
+// Types for klines data
+export interface KlineData {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+type KlineArray = [number, string, string, string, string, string, number, string, number, string, string, string];
+
 import { getAvailableTradingPairs } from '../config/tradingPairs';
 
 export class PriceService {
@@ -114,7 +126,7 @@ export class PriceService {
     });
 
     // Initialize WebSocket if not already done
-    this.initializeWebSocket(formattedSymbols);
+    this.initializeWebSocket();
 
     // Fetch initial prices immediately
     formattedSymbols.forEach(async (symbol) => {
@@ -152,7 +164,7 @@ export class PriceService {
    * Initialize WebSocket connection
    * Manages WebSocket connection and subscriptions
    */
-  private initializeWebSocket(symbols: string[] = []): void {
+  private initializeWebSocket(): void {
     // Return early if WebSocket is already initialized
     if (this.webSocket && this.webSocket.readyState === WebSocket.OPEN) {
       this.updateWebSocketSubscriptions();
@@ -266,8 +278,7 @@ export class PriceService {
     console.log(`Attempting to reconnect WebSocket (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     this.reconnectTimeout = setTimeout(() => {
-      const symbols = Array.from(this.webSocketSubscriptions.keys());
-      this.initializeWebSocket(symbols);
+      this.initializeWebSocket();
     }, Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000)); // Exponential backoff with max 30s
   }
 
@@ -310,19 +321,25 @@ export class PriceService {
   }
 
   /**
-   * Fetch klines/candlestick data from Binance
+   * Fetch klines/candlestick data from Binance with fallback to Coinbase
    * @param symbol - Trading symbol
    * @param interval - Time interval
    * @param limit - Number of candles
    * @returns Array of candlestick data
    */
-  public async fetchKlines(symbol: string, interval: string = '1m', limit: number = 100): Promise<any[]> {
+  public async fetchKlines(symbol: string, interval: string = '1d', limit: number = 100): Promise<KlineData[]> {
     try {
+      // Try Binance first
       const binanceSymbol = this.formatSymbolForBinance(symbol);
       const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`);
+      
+      if (!response.ok) {
+        throw new Error(`Binance API error: ${response.status}`);
+      }
+      
       const data = await response.json();
 
-      return data.map((candle: any[]) => ({
+      return data.map((candle: KlineArray) => ({
         time: candle[0],
         open: parseFloat(candle[1]),
         high: parseFloat(candle[2]),
@@ -331,8 +348,67 @@ export class PriceService {
         volume: parseFloat(candle[5])
       }));
     } catch (error) {
-      console.error('Error fetching klines:', error);
-      throw error;
+      console.error('Error fetching klines from Binance:', error);
+      
+      // Fallback to Coinbase API for basic price data
+      try {
+        console.log('Falling back to Coinbase API for price data');
+        const coinbaseSymbol = this.formatSymbolForCoinbase(symbol);
+        
+        // For Coinbase fallback, we'll create synthetic klines from spot prices
+        const syntheticKlines: KlineData[] = [];
+        const now = Date.now();
+        const intervalMs = this.getIntervalMs(interval);
+        
+        for (let i = limit - 1; i >= 0; i--) {
+          const time = now - (i * intervalMs);
+          try {
+            const priceData = await this.fetchPrice(coinbaseSymbol);
+            syntheticKlines.push({
+              time: time,
+              open: priceData.price,
+              high: priceData.price,
+              low: priceData.price,
+              close: priceData.price,
+              volume: 0
+            });
+          } catch (priceError) {
+            console.error('Error fetching fallback price:', priceError);
+            // Use a default price if API fails
+            syntheticKlines.push({
+              time: time,
+              open: 100,
+              high: 100,
+              low: 100,
+              close: 100,
+              volume: 0
+            });
+          }
+        }
+        
+        return syntheticKlines;
+      } catch (fallbackError) {
+        console.error('Error with Coinbase fallback:', fallbackError);
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Get milliseconds for interval
+   * @param interval - Time interval string
+   * @returns Milliseconds
+   */
+  private getIntervalMs(interval: string): number {
+    switch (interval) {
+      case '1m': return 60 * 1000;
+      case '15m': return 15 * 60 * 1000;
+      case '1h': return 60 * 60 * 1000;
+      case '1d': return 24 * 60 * 60 * 1000;
+      case '1w': return 7 * 24 * 60 * 60 * 1000;
+      case '1M': return 30 * 24 * 60 * 60 * 1000;
+      case '1y': return 365 * 24 * 60 * 60 * 1000;
+      default: return 24 * 60 * 60 * 1000; // Default to 1 day
     }
   }
 
@@ -342,13 +418,13 @@ export class PriceService {
    * @param targetCount - Target number of points
    * @returns Sampled data array
    */
-  private sampleData(data: any[], targetCount: number): any[] {
+  private sampleData(data: KlineData[], targetCount: number): KlineData[] {
     if (data.length <= targetCount) {
       return data;
     }
 
     const step = data.length / targetCount;
-    const sampled: any[] = [];
+    const sampled: KlineData[] = [];
 
     for (let i = 0; i < targetCount; i++) {
       const index = Math.floor(i * step);

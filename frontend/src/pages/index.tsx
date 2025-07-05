@@ -1,9 +1,8 @@
 import React from 'react';
 import {
-  Box, Container, Heading, Text, VStack, HStack, Button, SimpleGrid, Stack, Divider, Flex, Tooltip
+  Box, Container, Heading, Text, VStack, HStack, Button, SimpleGrid, Stack, Divider, Tooltip
 } from '@chakra-ui/react';
 import { FaRocket, FaLock, FaChartLine, FaBolt, FaArrowRight, FaShieldAlt, FaWallet, FaGithub, FaGlobe, FaCode } from 'react-icons/fa';
-import ConnectWallet from '../components/ConnectWallet';
 import { getAvailableTradingPairs } from '../config/tradingPairs';
 import Head from 'next/head';
 
@@ -88,7 +87,7 @@ const Home: React.FC = () => {
             <Box>
               <Heading size="lg" color="white" mb={8} textAlign="center">How It Works</Heading>
               <Stack direction={{ base: 'column', md: 'row' }} spacing={8} justify="center" align="center">
-                {steps.map((step, idx) => {
+                {steps.map((step) => {
                   const StepIcon = step.icon;
                   return (
                     <Box key={step.title} bg="#181A20" p={6} borderRadius="2xl" boxShadow="md" textAlign="center" w={{ base: '100%', md: '300px' }}>
@@ -105,7 +104,7 @@ const Home: React.FC = () => {
             <Box>
               <Heading size="lg" color="white" mb={8} textAlign="center">Why OREKA?</Heading>
               <SimpleGrid columns={{ base: 1, md: 4 }} spacing={8}>
-                {features.map((f, i) => {
+                {features.map((f) => {
                   const FeatureIcon = f.icon;
                   return (
                     <Box key={f.title} bg="#181A20" p={8} borderRadius="2xl" boxShadow="lg" textAlign="center">
@@ -122,11 +121,11 @@ const Home: React.FC = () => {
             <Box>
               <Heading size="lg" color="white" mb={8} textAlign="center">Supported Tokens</Heading>
               <HStack spacing={8} align="center" justify="center" flexWrap="wrap">
-                {supportedTokens.map((token, idx) => {
+                {supportedTokens.map((token) => {
                   const symbol = token.pair.split('/')[0].toUpperCase();
                   const fullName = tokenFullNames[symbol] || symbol;
                   return (
-                    <Tooltip key={token.pair + idx} label={fullName} hasArrow>
+                    <Tooltip key={token.pair} label={fullName} hasArrow>
                       <Box textAlign="center" minW="100px">
                         <img
                           src={`/images/${symbol.toLowerCase()}-logo.png`}

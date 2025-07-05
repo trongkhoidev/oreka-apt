@@ -96,18 +96,18 @@ export interface AptosTransaction {
   gasUnitPrice: number;
   gasCurrency: string;
   expirationTimestampSecs: number;
-  payload: any;
-  signature: any;
+  payload: unknown;
+  signature: unknown;
 }
 
 export interface AptosResource {
   type: string;
-  data: any;
+  data: unknown;
 }
 
 export interface AptosEvent {
   key: string;
   sequenceNumber: number;
   type: string;
-  data: any;
+  data: unknown;
 } 
