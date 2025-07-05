@@ -71,4 +71,6 @@ build/
 *.mv
 
 # Aptos specific
-.aptos/
+.aptos/node_modules/
+.next/
+build/
