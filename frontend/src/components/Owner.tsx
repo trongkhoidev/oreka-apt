@@ -31,12 +31,7 @@ import {
   NumberIncrementStepper,
   NumberDecrementStepper,
   useColorModeValue,
-  UnorderedList,
-  ListItem,
-  Radio,
-  RadioGroup,
-  Stack,
-  Badge,
+
   Flex
 } from '@chakra-ui/react';
 import { FaWallet, FaArrowUp, FaArrowDown, FaClock, FaGasPump, FaRocket, FaInfoCircle } from 'react-icons/fa';

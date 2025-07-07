@@ -4,6 +4,7 @@ import {
 } from '@chakra-ui/react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { bid, claim, resolveMarket, getMarketDetails, getUserBid } from '../services/aptosMarketService';
+import { buildPositionHistoryFromEvents } from '../services/positionHistoryService';
 import MarketCharts from './charts/MarketCharts';
 import { PriceService } from '../services/PriceService';
 import { getAvailableTradingPairs } from '../config/tradingPairs';
@@ -23,6 +24,23 @@ interface CustomerProps {
 
 const phaseNames = ['Pending', 'Bidding', 'Maturity'];
 
+// Add a helper to get/set history from localStorage
+function getHistoryKey(contractAddress: string) {
+  return `positionHistory_${contractAddress}`;
+}
+function loadHistory(contractAddress: string) {
+  try {
+    const raw = localStorage.getItem(getHistoryKey(contractAddress));
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return [];
+}
+function saveHistory(contractAddress: string, history: any[]) {
+  try {
+    localStorage.setItem(getHistoryKey(contractAddress), JSON.stringify(history));
+  } catch {}
+}
+
 const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const { connected, account, signAndSubmitTransaction } = useWallet();
   const toast = useToast();
@@ -40,6 +58,13 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const [userPositions, setUserPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
   const [positionHistory, setPositionHistory] = useState<{ time: number; long: number; short: number }[]>([]);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fetch position history from on-chain event log
+  const fetchPositionHistory = useCallback(async () => {
+    if (!contractAddress) return;
+    const history = await buildPositionHistoryFromEvents(contractAddress);
+    setPositionHistory(history);
+  }, [contractAddress]);
 
   // Fetch market data and update state
   const fetchMarketData = useCallback(async () => {
@@ -67,8 +92,11 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       if (connected && account?.address) {
         try {
           const userBid = await getUserBid(account.address.toString(), contractAddress);
-          if (userBid[1]) {
-            setUserPositions({ long: Number(userBid[0]), short: 0 });
+          if (userBid[2]) {
+            setUserPositions({ 
+              long: Number(userBid[0]) / 1e8, 
+              short: Number(userBid[1]) / 1e8
+            });
           } else {
             setUserPositions({ long: 0, short: 0 });
           }
@@ -76,38 +104,27 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
           setUserPositions({ long: 0, short: 0 });
         }
       }
+      // Fetch position history from event log
+      await fetchPositionHistory();
     } catch {
       toast({ title: 'Error', description: 'Could not fetch market data', status: 'error' });
     } finally {
       setIsLoading(false);
     }
-  }, [contractAddress, toast, connected, account]);
+  }, [contractAddress, toast, connected, account, fetchPositionHistory]);
 
-  // Poll for position history (long/short ratio over time)
+  // Poll for position history (from event log)
   useEffect(() => {
     if (!market) return;
     if (pollingRef.current) clearInterval(pollingRef.current);
     const poll = async () => {
-      const now = Math.floor(Date.now() / 1000);
-      if (phase === Phase.Bidding || phase === Phase.Maturity) {
-        const details = await getMarketDetails(contractAddress);
-        if (details) {
-          setPositionHistory(prev => ([
-            ...prev,
-            {
-              time: now * 1000,
-              long: details.long_amount ? Number(details.long_amount) / 1e8 : 0,
-              short: details.short_amount ? Number(details.short_amount) / 1e8 : 0
-            }
-          ]));
-        }
-      }
+      await fetchPositionHistory();
     };
     pollingRef.current = setInterval(poll, 20000);
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
-  }, [contractAddress, phase, market]);
+  }, [contractAddress, market, fetchPositionHistory]);
 
-  // Fetch market data on mount and when contractAddress changes
+  // Fetch market data and position history on mount and when contractAddress changes
   useEffect(() => { fetchMarketData(); }, [fetchMarketData]);
 
   // Fetch asset price
@@ -156,7 +173,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       await bid(signAndSubmitTransaction, contractAddress, selectedSide === Side.Long, parseFloat(bidAmount));
       toast({ title: 'Bid submitted', status: 'success' });
       setBidAmount('');
-      fetchMarketData();
+      await fetchMarketData();
     } catch (error: unknown) {
       toast({ title: 'Bid failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -171,7 +188,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       const finalPrice = Math.round(currentPrice * 1e8);
       await resolveMarket(signAndSubmitTransaction, contractAddress, finalPrice);
       toast({ title: 'Market resolve transaction submitted', status: 'success' });
-      fetchMarketData();
+      await fetchMarketData();
     } catch (error: unknown) {
       toast({ title: 'Resolve failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -185,7 +202,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     try {
       await claim(signAndSubmitTransaction, contractAddress);
       toast({ title: 'Claim transaction submitted', status: 'success' });
-      fetchMarketData();
+      await fetchMarketData();
     } catch (error: unknown) {
       toast({ title: 'Claim failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {

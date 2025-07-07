@@ -8,6 +8,8 @@ module yugo::binary_option_market {
     use aptos_framework::object::Object;
     use aptos_framework::timestamp;
     use aptos_framework::event;
+    use aptos_framework::coin::{Self, Coin};
+    use aptos_framework::aptos_coin::AptosCoin;
 
     /// The bid placed by a user.
     struct Bid has store, copy, drop {
@@ -54,7 +56,8 @@ module yugo::binary_option_market {
         created_at: u64,
         /// The final price of the market.
         final_price: u64,
-        fee_withdrawn: bool, // new field to track if owner withdrew fee
+        fee_withdrawn: bool,
+        coin_vault: Coin<AptosCoin>,
     }
 
     // Event definitions
@@ -63,6 +66,7 @@ module yugo::binary_option_market {
         user: address,
         prediction: bool,
         amount: u64,
+        market_address: address,
     }
     #[event]
     struct ResolveEvent has drop, store {
@@ -138,6 +142,7 @@ module yugo::binary_option_market {
             created_at,
             final_price: 0,
             fee_withdrawn: false,
+            coin_vault: coin::zero<AptosCoin>(),
         };
         let constructor_ref = object::create_object(signer::address_of(creator));
         let object_signer = object::generate_signer(&constructor_ref);
@@ -174,6 +179,9 @@ module yugo::binary_option_market {
         assert!(now >= market.bidding_start_time && now < market.bidding_end_time, ENOT_IN_BIDDING_PHASE);
         assert!(amount > 0, EINSUFFICIENT_AMOUNT);
         let bidder_address = signer::address_of(owner);
+        // Transfer coins from user to market vault
+        let coins = coin::withdraw<AptosCoin>(owner, amount);
+        coin::merge(&mut market.coin_vault, coins);
         let user_bid;
         if (table::contains(&market.bids, bidder_address)) {
             user_bid = table::remove(&mut market.bids, bidder_address);
@@ -202,6 +210,7 @@ module yugo::binary_option_market {
             user: bidder_address,
             prediction,
             amount,
+            market_address: market_addr,
         });
     }
 
@@ -245,7 +254,9 @@ module yugo::binary_option_market {
             (0, false)
         };
         assert!(claim_amount > 0, EALREADY_CLAIMED);
-        // Coin transfer logic would go here
+        // Transfer coins from market vault to user
+        let payout = coin::extract(&mut market.coin_vault, claim_amount);
+        coin::deposit(bidder_address, payout);
         event::emit(ClaimEvent {
             user: bidder_address,
             amount: claim_amount,
@@ -261,7 +272,9 @@ module yugo::binary_option_market {
         assert!(market.is_resolved, EMARKET_NOT_RESOLVED);
         assert!(!market.fee_withdrawn, EALREADY_CLAIMED);
         let fee = (market.fee_percentage * market.total_amount) / 1000; // fee_percentage is per-mille (e.g. 100 = 10%)
-        // Coin transfer logic would go here
+        // Transfer fee coins from market vault to owner
+        let payout = coin::extract(&mut market.coin_vault, fee);
+        coin::deposit(signer::address_of(owner), payout);
         market.fee_withdrawn = true;
         event::emit(WithdrawFeeEvent {
             owner: signer::address_of(owner),
@@ -312,16 +325,15 @@ module yugo::binary_option_market {
         )
     }
 
-    /// Get the bid for a specific user.
-    public fun get_user_bid(owner: &signer, market_obj: Object<Market>): (u64, bool) acquires Market {
-        let market_address = object::object_address(&market_obj);
-        let market = borrow_global<Market>(market_address);
-        let bidder_address = signer::address_of(owner);
-        if (table::contains(&market.bids, bidder_address)) {
-            let user_bid = table::borrow(&market.bids, bidder_address);
-            (user_bid.long_amount, true)
+    /// Get the bid for a specific user (view, by address).
+    #[view]
+    public fun get_user_position(user: address, market_addr: address): (u64, u64) acquires Market {
+        let market = borrow_global<Market>(market_addr);
+        if (table::contains(&market.bids, user)) {
+            let user_bid = table::borrow(&market.bids, user);
+            (user_bid.long_amount, user_bid.short_amount)
         } else {
-            (0, false)
+            (0, 0)
         }
     }
 }

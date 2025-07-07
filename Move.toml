@@ -4,7 +4,7 @@ version = "1.0.0"
 authors = []
 
 [addresses]
-yugo = "0x75c694e08e177114044e54f34eb8d1c30b79dca22f0570c7a2c71f07bc047f93"
+yugo = "0x8ae5bfd0cf11ff50af3ddb9f5ef5b631224023878e3f26334e918710215a9e9f"
 
 [dev-addresses]
 

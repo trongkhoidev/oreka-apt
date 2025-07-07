@@ -1,5 +1,6 @@
 // import only what is used
 import { FACTORY_MODULE_ADDRESS } from '@/config/contracts';
+import { DEPLOYED_ADDRESSES } from '../config/contracts';
 import { getAptosClient } from '../config/network';
 import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
 
@@ -366,15 +367,17 @@ export async function bid(
     prediction: boolean, 
     amount: number
 ): Promise<string> {
+    // Convert amount to octas (1 APT = 1e8 octas)
+    const amountInOctas = Math.floor(amount * 1e8);
+    // Use standard entry function payload; coin transfer is handled by Move contract
     const transaction: InputTransactionData = {
         data: {
             function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::bid`,
             typeArguments: [],
-            functionArguments: [marketAddress, prediction, amount.toString(), Math.floor(Date.now() / 1000).toString()],
+            functionArguments: [marketAddress, prediction, amountInOctas.toString(), Math.floor(Date.now() / 1000).toString()],
         }
     };
     const response = await signAndSubmitTransaction(transaction);
-    // If response is unknown, try to access hash safely
     if (response && typeof response === 'object' && 'hash' in response) {
       return (response as { hash: string }).hash;
     }
@@ -477,17 +480,36 @@ export async function getAllMarkets(): Promise<MarketInfo[]> {
   }
 }
 
-export async function getUserBid(userAddress: string, marketAddress: string): Promise<[string, boolean]> {
+/**
+ * Get the user's bid for a specific market.
+ * @param userAddress - The user's wallet address
+ * @param marketAddress - The market object address (NOT the module address!)
+ * @returns [long_amount, short_amount, has_bid]
+ */
+export async function getUserBid(userAddress: string, marketAddress: string): Promise<[string, string, boolean]> {
+  // Runtime check: warn if marketAddress is the module address
+  if (
+    marketAddress === FACTORY_MODULE_ADDRESS ||
+    marketAddress === DEPLOYED_ADDRESSES.binaryOptionMarket
+  ) {
+    console.warn('[getUserBid] WARNING: marketAddress is the module address, not the market object address!', { marketAddress });
+    // Optionally, throw an error here to catch bugs early
+    // throw new Error('Invalid market address: must be the market object address, not the module address');
+  }
   const aptos = getAptosClient();
   const result = await aptos.view({
     payload: {
-      function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::get_user_bid`,
+      function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::get_user_position`,
       typeArguments: [],
       functionArguments: [userAddress, marketAddress],
     }
   });
   if (result && Array.isArray(result[0]) && result[0].length === 2) {
-    return [String(result[0][0]), Boolean(result[0][1])];
+    // Return [long_amount, short_amount, has_bid]
+    const long = String(result[0][0]);
+    const short = String(result[0][1]);
+    const hasBid = Number(long) > 0 || Number(short) > 0;
+    return [long, short, hasBid];
   }
-  return ['0', false];
+  return ['0', '0', false];
 } 
