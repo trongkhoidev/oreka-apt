@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Flex, HStack, Text, Button, Container, useToast, Spinner, Tabs, TabList, TabPanels, Tab, TabPanel
 } from '@chakra-ui/react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { bid, claim, resolveMarket, getMarketDetails, getUserBid } from '../services/aptosMarketService';
-import { buildPositionHistoryFromEvents } from '../services/positionHistoryService';
 import MarketCharts from './charts/MarketCharts';
 import { PriceService } from '../services/PriceService';
 import { getAvailableTradingPairs } from '../config/tradingPairs';
@@ -14,6 +13,8 @@ import MarketBetPanel from './customer/MarketBetPanel';
 import MarketRules from './customer/MarketRules';
 import type { MarketInfo as MarketInfoType } from '../services/aptosMarketService';
 import ChartDataPrefetchService from '../services/ChartDataPrefetchService';
+import { buildPositionHistoryFromEvents } from '../services/positionHistoryService';
+import PositionRealtimeService from '../services/PositionRealtimeService';
 
 enum Side { Long, Short }
 enum Phase { Pending = 0, Bidding = 1, Maturity = 2 }
@@ -23,23 +24,6 @@ interface CustomerProps {
 }
 
 const phaseNames = ['Pending', 'Bidding', 'Maturity'];
-
-// Add a helper to get/set history from localStorage
-function getHistoryKey(contractAddress: string) {
-  return `positionHistory_${contractAddress}`;
-}
-function loadHistory(contractAddress: string) {
-  try {
-    const raw = localStorage.getItem(getHistoryKey(contractAddress));
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [];
-}
-function saveHistory(contractAddress: string, history: any[]) {
-  try {
-    localStorage.setItem(getHistoryKey(contractAddress), JSON.stringify(history));
-  } catch {}
-}
 
 const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const { connected, account, signAndSubmitTransaction } = useWallet();
@@ -57,14 +41,26 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const [showRules, setShowRules] = useState(false);
   const [userPositions, setUserPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
   const [positionHistory, setPositionHistory] = useState<{ time: number; long: number; short: number }[]>([]);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch position history from on-chain event log
-  const fetchPositionHistory = useCallback(async () => {
-    if (!contractAddress) return;
-    const history = await buildPositionHistoryFromEvents(contractAddress);
-    setPositionHistory(history);
-  }, [contractAddress]);
+  // Fetch user positions
+  const fetchUserPositions = useCallback(async () => {
+    if (connected && account?.address) {
+      try {
+        const [long, short, hasBid] = await getUserBid(account.address.toString(), contractAddress);
+        console.log('getUserBid:', { long, short, hasBid, account: account.address.toString(), contractAddress });
+        setUserPositions({
+          long: Number(long),
+          short: Number(short)
+        });
+        console.log('userPositions set:', { long: Number(long), short: Number(short) });
+      } catch (e) {
+        console.error('getUserBid error:', e);
+        setUserPositions({ long: 0, short: 0 });
+      }
+    } else {
+      setUserPositions({ long: 0, short: 0 });
+    }
+  }, [connected, account, contractAddress]);
 
   // Fetch market data and update state
   const fetchMarketData = useCallback(async () => {
@@ -89,42 +85,42 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       else setPhase(Phase.Maturity);
       setAssetLogo(`/images/${details.pair_name.split('/')[0].toLowerCase()}-logo.png`);
       // Fetch user positions
-      if (connected && account?.address) {
-        try {
-          const userBid = await getUserBid(account.address.toString(), contractAddress);
-          if (userBid[2]) {
-            setUserPositions({ 
-              long: Number(userBid[0]) / 1e8, 
-              short: Number(userBid[1]) / 1e8
-            });
-          } else {
-            setUserPositions({ long: 0, short: 0 });
-          }
-        } catch {
-          setUserPositions({ long: 0, short: 0 });
-        }
-      }
-      // Fetch position history from event log
-      await fetchPositionHistory();
+      await fetchUserPositions();
     } catch {
       toast({ title: 'Error', description: 'Could not fetch market data', status: 'error' });
     } finally {
       setIsLoading(false);
     }
-  }, [contractAddress, toast, connected, account, fetchPositionHistory]);
+  }, [contractAddress, toast, fetchUserPositions]);
 
-  // Poll for position history (from event log)
+  // Fetch position history for the market
   useEffect(() => {
-    if (!market) return;
-    if (pollingRef.current) clearInterval(pollingRef.current);
-    const poll = async () => {
-      await fetchPositionHistory();
+    if (!contractAddress) return;
+    let isMounted = true;
+    const fetchPositionHistory = async () => {
+      // Use realtime service for position history
+      const realtimeService = PositionRealtimeService.getInstance();
+      const history = realtimeService.getPositionHistory(contractAddress, 'all');
+      
+      if (isMounted && history.length > 0) {
+        // Convert to old format for backward compatibility
+        const convertedHistory = history.map(h => ({
+          time: h.time,
+          long: h.long,
+          short: h.short
+        }));
+        setPositionHistory(convertedHistory);
+      } else {
+        // Fallback to old method if no realtime data
+        const history = await buildPositionHistoryFromEvents(contractAddress);
+        if (isMounted) setPositionHistory(history);
+      }
     };
-    pollingRef.current = setInterval(poll, 20000);
-    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
-  }, [contractAddress, market, fetchPositionHistory]);
+    fetchPositionHistory();
+    return () => { isMounted = false; };
+  }, [contractAddress, phase]);
 
-  // Fetch market data and position history on mount and when contractAddress changes
+  // Fetch market data on mount and when contractAddress changes
   useEffect(() => { fetchMarketData(); }, [fetchMarketData]);
 
   // Fetch asset price
@@ -158,11 +154,15 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const long = market?.long_amount ? Number(market.long_amount) : 0;
   const short = market?.short_amount ? Number(market.short_amount) : 0;
   const total = market?.total_amount ? Number(market.total_amount) : long + short;
+  // Debug log for Total Deposited
+  // if (process.env.NODE_ENV !== 'production') {
+  //   console.log('Total Deposited (raw):', market?.total_amount, 'long:', long, 'short:', short);
+  // }
+  const totalDeposited = market?.total_amount ? (Number(market.total_amount) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
   const longPercentage = total === 0 ? 50 : (long / total) * 100;
   const shortPercentage = total === 0 ? 50 : (short / total) * 100;
   const strike = market?.strike_price ? (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
   const maturity = market?.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
-  const pool = market?.total_amount ? (Number(market.total_amount) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
   const fee = market?.fee_percentage ? (Number(market.fee_percentage) / 10).toFixed(1) : '--';
 
   // Handlers
@@ -173,7 +173,23 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       await bid(signAndSubmitTransaction, contractAddress, selectedSide === Side.Long, parseFloat(bidAmount));
       toast({ title: 'Bid submitted', status: 'success' });
       setBidAmount('');
-      await fetchMarketData();
+      // Chỉ cập nhật lại market, userPositions, positionHistory thay vì reload toàn bộ
+      // 1. Update market
+      const details = await getMarketDetails(contractAddress);
+      setMarket(details);
+      // 2. Update userPositions
+      await fetchUserPositions();
+      // 3. Update positionHistory (realtime)
+      const realtimeService = PositionRealtimeService.getInstance();
+      const history = realtimeService.getPositionHistory(contractAddress, 'all');
+      if (history.length > 0) {
+        const convertedHistory = history.map(h => ({
+          time: h.time,
+          long: h.long,
+          short: h.short
+        }));
+        setPositionHistory(convertedHistory);
+      }
     } catch (error: unknown) {
       toast({ title: 'Bid failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -188,7 +204,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       const finalPrice = Math.round(currentPrice * 1e8);
       await resolveMarket(signAndSubmitTransaction, contractAddress, finalPrice);
       toast({ title: 'Market resolve transaction submitted', status: 'success' });
-      await fetchMarketData();
+      fetchMarketData();
     } catch (error: unknown) {
       toast({ title: 'Resolve failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -202,7 +218,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     try {
       await claim(signAndSubmitTransaction, contractAddress);
       toast({ title: 'Claim transaction submitted', status: 'success' });
-      await fetchMarketData();
+      fetchMarketData();
     } catch (error: unknown) {
       toast({ title: 'Claim failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -222,6 +238,8 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     );
   }
 
+  const CHART_HEIGHT = 380;
+
   return (
     <Box bg="dark.900" minH="100vh" py={8}>
       <Container maxW="container.xl">
@@ -231,16 +249,17 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
           pairName={market.pair_name || ''}
           strike={strike}
           maturity={maturity}
-          pool={pool}
+          pool={totalDeposited}
           fee={fee}
           phase={phase}
           phaseNames={phaseNames}
         />
+        
 
         {/* Main Content - 2 Column Layout */}
         <Flex direction={{ base: 'column', md: 'row' }} gap={6}>
           {/* Left Side - Charts and Rules */}
-          <Box width={{ base: '100%', md: '80%' }} pr={{ base: 0, md: 4 }}>
+          <Box width={{ base: '100%', md: '70%' }} pr={{ base: 0, md: 2 }}>
             <Tabs variant="line" colorScheme="yellow" border="1px solid" borderColor="gray.700" borderRadius="xl" pb={2}>
               <Box pb={1}>
                 <TabList
@@ -298,22 +317,28 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
               </Box>
 
               <TabPanels>
-                <TabPanel p={0} pt={4}>
+                <TabPanel p={0} pt={2}>
                   <Box position="relative" width="100%">
                     <MarketCharts
                       chartSymbol={market.pair_name || market?.pair_name}
                       strikePrice={market?.strike_price ? Number(market.strike_price) / 1e8 : Number(market?.strike_price || 0)}
                       chartType="position"
                       data={positionHistory}
+                      height={CHART_HEIGHT}
+                      marketAddress={contractAddress}
+                      biddingStartTime={market?.bidding_start_time ? Number(market.bidding_start_time) * 1000 : undefined}
+                      biddingEndTime={market?.bidding_end_time ? Number(market.bidding_end_time) * 1000 : undefined}
+                      currentTime={Date.now()}
                     />
                   </Box>
                 </TabPanel>
-                <TabPanel p={0} pt={4}>
+                <TabPanel p={0} pt={2}>
                   <Box position="relative" width="100%">
                     <MarketCharts
                       chartSymbol={market.pair_name || market?.pair_name}
                       strikePrice={market?.strike_price ? Number(market.strike_price) / 1e8 : Number(market?.strike_price || 0)}
                       chartType="price"
+                      height={CHART_HEIGHT}
                     />
                   </Box>
                 </TabPanel>
@@ -331,11 +356,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
           </Box>
 
           {/* Right Side - Betting Panel and Market Info */}
-          <Box width={{ base: '100%', md: '28%' }} mr={0} ml={{ md: 4 }}
-            minW={{ md: '340px' }}
-            maxW={{ md: '420px' }}
-            alignSelf="flex-start"
-          >
+          <Box width={{ base: '100%', md: '30%' }} ml={{ md: 2 }} minW={{ md: '280px' }} maxW={{ md: '340px' }} alignSelf="flex-start">
             <Box
               bg="gray.800"
               p={6}

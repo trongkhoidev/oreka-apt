@@ -1,5 +1,6 @@
 import { FACTORY_MODULE_ADDRESS } from '@/config/contracts';
 import { getMarketDetails } from './aptosMarketService';
+import { GraphQLClient, gql } from 'graphql-request';
 
 export interface BidEvent {
   data: {
@@ -16,6 +17,8 @@ export interface BidEvent {
   timestamp?: string;
   sequence_number?: string;
 }
+
+const GRAPHQL_ENDPOINT = process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT || 'https://your-graphql-api-endpoint.com/graphql';
 
 /**
  * Fetch BidEvent history for a market from Aptos REST API using module event API.
@@ -49,31 +52,96 @@ export async function getMarketBidEvents(marketAddress: string): Promise<BidEven
 }
 
 /**
+ * Fetch position history for a market from GraphQL API
+ * @param marketAddress - The object address of the market
+ * @returns Array of { time, long, short } points for chart
+ */
+type PositionHistoryGraphQLResponse = {
+  positionHistory: { time: number; long: number; short: number }[];
+};
+export async function fetchPositionHistoryGraphQL(marketAddress: string): Promise<{time: number, long: number, short: number}[]> {
+  const client = new GraphQLClient(GRAPHQL_ENDPOINT);
+  const query = gql`
+    query PositionHistory($marketAddress: String!) {
+      positionHistory(marketAddress: $marketAddress) {
+        time
+        long
+        short
+      }
+    }
+  `;
+  try {
+    const data = await client.request<PositionHistoryGraphQLResponse>(query, { marketAddress });
+    if (data && data.positionHistory && Array.isArray(data.positionHistory)) {
+      return data.positionHistory;
+    }
+    return [];
+  } catch (e) {
+    console.warn('[fetchPositionHistoryGraphQL] Fallback to REST/events due to error:', e);
+    return [];
+  }
+}
+
+/**
  * Build position history from BidEvent log for rendering PositionChart
  * @param marketAddress - The object address of the market
  * @returns Array of { time, long, short } points for chart
  */
 export async function buildPositionHistoryFromEvents(marketAddress: string): Promise<{time: number, long: number, short: number}[]> {
+  // Try GraphQL first
+  const gqlData = await fetchPositionHistoryGraphQL(marketAddress);
+  if (gqlData.length > 0) return gqlData;
+  
+  // Try realtime service for cached data
+  try {
+    const PositionRealtimeService = (await import('./PositionRealtimeService')).default;
+    const realtimeService = PositionRealtimeService.getInstance();
+    const realtimeHistory = realtimeService.getPositionHistory(marketAddress, 'all');
+    
+    if (realtimeHistory.length > 0) {
+      // Convert to expected format
+      return realtimeHistory.map(h => ({
+        time: h.time,
+        long: h.long,
+        short: h.short
+      }));
+    }
+  } catch (e) {
+    console.warn('[buildPositionHistoryFromEvents] Realtime service not available:', e);
+  }
+  
+  // Fallback to events
   const events = await getMarketBidEvents(marketAddress);
   let long = 0, short = 0;
   const history = [];
-  for (const e of events) {
+  
+  // Sort events by timestamp for accurate cumulative calculation
+  const sortedEvents = events.sort((a, b) => {
+    const timeA = a.block_timestamp ? Number(a.block_timestamp) : (a.timestamp ? Number(a.timestamp) : 0);
+    const timeB = b.block_timestamp ? Number(b.block_timestamp) : (b.timestamp ? Number(b.timestamp) : 0);
+    return timeA - timeB;
+  });
+  
+  for (const e of sortedEvents) {
     if (!e.data || typeof e.data.prediction !== 'boolean' || !e.data.amount) continue;
-    if (e.data.prediction) long += Number(e.data.amount);
-    else short += Number(e.data.amount);
+    
+    const amount = Number(e.data.amount) / 1e8;
+    if (e.data.prediction) long += amount;
+    else short += amount;
+    
     // Prefer block_timestamp, then event.timestamp, then sequence_number, fallback to Date.now()
     let time = Date.now();
     if (e.block_timestamp) time = Number(e.block_timestamp) * 1000;
     else if (e.timestamp) time = Number(e.timestamp) * 1000;
     else if (e.sequence_number) time = Number(e.sequence_number);
+    
     history.push({
       time,
-      long: long / 1e8,
-      short: short / 1e8,
+      long,
+      short,
     });
   }
-  // Sort by time ascending
-  history.sort((a, b) => a.time - b.time);
+  
   // If no events, fallback to on-chain resource values
   if (history.length === 0) {
     try {
@@ -103,6 +171,7 @@ export async function buildPositionHistoryFromEvents(marketAddress: string): Pro
       console.warn(`[buildPositionHistoryFromEvents] No BidEvent and error fetching market resource for market ${marketAddress}, fallback to 50/50`, e);
     }
   }
+  
   // If only one point, add a synthetic point at bidding_start_time with 0/0 (or 50/50)
   if (history.length === 1) {
     try {
@@ -130,5 +199,6 @@ export async function buildPositionHistoryFromEvents(marketAddress: string): Pro
       });
     }
   }
+  
   return history;
 } 

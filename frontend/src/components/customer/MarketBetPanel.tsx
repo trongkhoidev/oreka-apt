@@ -53,11 +53,11 @@ const MarketBetPanel: React.FC<MarketBetPanelProps> = ({
     <Text fontSize="lg" fontWeight="bold" mb={3} mt={4} color="#FEDF56">Your Position</Text>
     <Flex justify="space-between" mb={2}>
       <Text color="green.400">LONG:</Text>
-      <Text color="white">{userPositions.long.toFixed(6)} APT</Text>
+      <Text color="white">{(userPositions.long / 1e8).toFixed(4)} APT</Text>
     </Flex>
     <Flex justify="space-between">
       <Text color="red.400">SHORT:</Text>
-      <Text color="white">{userPositions.short.toFixed(6)} APT</Text>
+      <Text color="white">{(userPositions.short / 1e8).toFixed(4)} APT</Text>
     </Flex>
   </Box>
 );

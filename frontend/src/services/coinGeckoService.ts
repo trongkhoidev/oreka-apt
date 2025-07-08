@@ -18,7 +18,7 @@ const INTERVALS: Record<string, { days: string; interval: string }> = {
 export async function fetchCoinGeckoHistory(symbol: string, interval: string = '24h'): Promise<CoinGeckoCandle[]> {
   const intervalConfig = INTERVALS[interval];
   if (!intervalConfig) {
-    console.warn(`[CoinGecko] Unsupported interval '${interval}', falling back to '24h'`);
+    //console.warn(`[CoinGecko] Unsupported interval '${interval}', falling back to '24h'`);
     return fetchCoinGeckoHistory(symbol, '24h');
   }
   const { days, interval: cgInterval } = intervalConfig;
@@ -26,16 +26,16 @@ export async function fetchCoinGeckoHistory(symbol: string, interval: string = '
   try {
     const res = await fetch(url);
     if (!res.ok) {
-      console.error(`[CoinGecko] API error: ${res.status} for url: ${url}`);
+      //console.error(`[CoinGecko] API error: ${res.status} for url: ${url}`);
       if (res.status === 404) {
-        console.error(`[CoinGecko] 404 Not Found. Possible wrong symbol: '${symbol}'.`);
+        //console.error(`[CoinGecko] 404 Not Found. Possible wrong symbol: '${symbol}'.`);
       }
       return [];
     }
     const data = await res.json();
     return (data.prices || []).map(([time, price]: [number, number]) => ({ time, close: price }));
   } catch (e) {
-    console.error(`[CoinGecko] Fetch error for url: ${url}`, e);
+   // console.error(`[CoinGecko] Fetch error for url: ${url}`, e);
     return [];
   }
 } 

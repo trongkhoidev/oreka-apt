@@ -2,6 +2,8 @@ import React from 'react';
 import { Tabs, TabList, TabPanels, Tab, TabPanel, Box } from '@chakra-ui/react';
 import MarketCharts from '../charts/MarketCharts';
 
+// NOTE: positionHistory should be fetched using buildPositionHistoryFromEvents (GraphQL-backed) for accuracy and performance.
+
 export interface Market {
   pair_name: string;
   [key: string]: any;

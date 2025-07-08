@@ -84,7 +84,7 @@ const ListAddressOwner: React.FC = () => {
       if (!marketInfos || marketInfos.length === 0) {
         setMarkets([]);
         setMarketDetails({});
-        toast({ title: 'No contracts found', description: 'No markets deployed on this network. Please check if the contract is deployed to devnet.', status: 'warning', duration: 4000, isClosable: true });
+        //toast({ title: 'No contracts found', description: 'No markets deployed on this network. Please check if the contract is deployed to devnet.', status: 'warning', duration: 4000, isClosable: true });
         return;
       }
       // Fetch details for each market in parallel and merge

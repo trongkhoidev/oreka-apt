@@ -51,6 +51,7 @@ yarn install
 # Create .env.local file
 NEXT_PUBLIC_APTOS_NETWORK=devnet
 NEXT_PUBLIC_APTOS_NODE_URL=https://fullnode.devnet.aptoslabs.com
+NEXT_PUBLIC_GRAPHQL_ENDPOINT=https://your-graphql-api-endpoint.com/graphql
 ```
 
 4. Run the development server:
@@ -173,3 +174,14 @@ For support and questions:
 - [ ] Cross-chain support
 - [ ] Advanced trading features
 - [ ] Governance token 
+
+## GraphQL API Integration
+
+- The frontend now supports fetching position history for markets using a GraphQL API for improved performance and flexibility.
+- To use a custom GraphQL endpoint, set the environment variable `NEXT_PUBLIC_GRAPHQL_ENDPOINT` in your `.env.local` file:
+
+```
+NEXT_PUBLIC_GRAPHQL_ENDPOINT=https://your-graphql-api-endpoint.com/graphql
+```
+
+- The GraphQL API should provide a `positionHistory(marketAddress: String!): [PositionHistoryPoint!]!` query returning objects with `time`, `long`, and `short` fields. 

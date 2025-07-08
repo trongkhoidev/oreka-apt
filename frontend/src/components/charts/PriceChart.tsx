@@ -65,6 +65,13 @@ async function fetchBinanceKlines(symbol: string, interval: string, limit: numbe
   }
 }
 
+function getTimeUnit(min: number, max: number) {
+  const diff = max - min;
+  if (diff < 2 * 24 * 60 * 60 * 1000) return 'hour';
+  if (diff < 60 * 24 * 60 * 60 * 1000) return 'day';
+  return 'month';
+}
+
 const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg = '#181A20', height = 400 }) => {
   const [interval, setInterval] = useState<IntervalValue>('24h');
   const [chartData, setChartData] = useState<CoinGeckoCandle[]>([]);
@@ -92,6 +99,10 @@ const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg 
   const first = chartData.length ? chartData[0].close : 0;
   const change = last && first ? last - first : 0;
   const percent = last && first ? (change / first) * 100 : 0;
+
+  const minTime = chartData.length ? chartData[0].time : Date.now();
+  const maxTime = chartData.length ? chartData[chartData.length - 1].time : Date.now();
+  const timeUnit = getTimeUnit(minTime, maxTime) as 'hour' | 'day' | 'month';
 
   const chartJsData = {
     labels: chartData.map(d => d.time),
@@ -146,8 +157,8 @@ const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg 
       x: {
         type: 'time' as const,
         time: {
-          unit: interval === '1h' || interval === '6h' || interval === '24h' ? 'hour' : interval === '24h' ? 'hour' : interval === '7d' || interval === '1m' || interval === '6m' ? 'day' : 'month',
-          tooltipFormat: 'Pp',
+          unit: timeUnit,
+          tooltipFormat: timeUnit === 'hour' ? 'MMM d, HH:mm' : (timeUnit === 'day' ? 'MMM d' : 'MMM yyyy'),
           displayFormats: {
             hour: 'MMM d, ha',
             day: 'MMM d',
@@ -173,8 +184,8 @@ const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg 
     elements: {
       line: {
         borderWidth: 2,
-        borderJoinStyle: 'round',
-        borderCapStyle: 'round',
+        borderJoinStyle: 'round' as CanvasLineJoin,
+        borderCapStyle: 'round' as CanvasLineCap,
       },
       point: { radius: 0, hitRadius: 8, hoverRadius: 5 },
     },
