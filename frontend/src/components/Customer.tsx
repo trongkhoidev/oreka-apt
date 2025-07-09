@@ -148,8 +148,8 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   }, [market?.pair_name]);
 
   // Derived values
-  const isOwner = connected && account?.address.toString() === (market?.owner || market?.creator);
-  const canResolve = phase === Phase.Maturity && isOwner;
+  const isOwner = connected && account?.address ? account.address.toString() === (market?.owner || market?.creator) : false;
+  const canResolve = phase === Phase.Maturity && !market?.is_resolved;
   const canClaim = phase === Phase.Maturity;
   const long = market?.long_amount ? Number(market.long_amount) : 0;
   const short = market?.short_amount ? Number(market.short_amount) : 0;
@@ -198,11 +198,12 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   };
 
   const handleResolve = async () => {
-    if (!currentPrice || !signAndSubmitTransaction) return;
+    if (!signAndSubmitTransaction) return;
     setIsSubmitting(true);
     try {
-      const finalPrice = Math.round(currentPrice * 1e8);
-      await resolveMarket(signAndSubmitTransaction, contractAddress, finalPrice);
+      // TODO: Khi contract đã tích hợp PriceFeed, chỉ cần gọi resolveMarket mà không truyền giá từ frontend
+      // Hiện tại, truyền 0 vào final_price (contract sẽ cần tự lấy giá on-chain)
+      await resolveMarket(signAndSubmitTransaction, contractAddress, 0);
       toast({ title: 'Market resolve transaction submitted', status: 'success' });
       fetchMarketData();
     } catch (error: unknown) {
@@ -375,20 +376,21 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 </HStack>
               </Flex>
 
-              {/* Show Final Price in Maturity phase */}
-              {phase === Phase.Maturity && (market?.final_price || market?.final_price) && (
+              {/* Show Final Price in Maturity phase - chỉ hiển thị khi market đã resolve */}
+              {phase === Phase.Maturity && market?.is_resolved && market?.final_price && (
                 <Flex justify="space-between" align="center" mt={2}>
                   <HStack fontSize="20px">
                     <Text color="gray.400">Final Price:</Text>
                     <Text fontWeight="bold" color={String(market?.result) === '0' ? 'green' : 'red'}>
-                      {market?.final_price ? (Number(market.final_price) / 1e8).toFixed(4) : Number(market?.final_price || '0').toFixed(4)}
+                      {Number(market.final_price) / 1e8}
                     </Text>
                     <Text fontWeight="bold" color="#FEDF56">USD</Text>
                   </HStack>
                 </Flex>
               )}
 
-              {canClaim && (
+              {/* Chỉ hiển thị nút Claim Rewards khi market đã resolve */}
+              {phase === Phase.Maturity && market?.is_resolved && (
                 <Button
                   onClick={handleClaim}
                   colorScheme="yellow"
@@ -419,6 +421,9 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 shortPercentage={shortPercentage}
                 userPositions={userPositions}
                 fee={fee}
+                longAmount={long}
+                shortAmount={short}
+                totalAmount={total}
               />
             )}
 

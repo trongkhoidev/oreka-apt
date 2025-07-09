@@ -323,7 +323,7 @@ export async function getMarketDetails(marketObjectAddress: string): Promise<Mar
     const resourceType = `${FACTORY_MODULE_ADDRESS}::binary_option_market::Market` as `${string}::${string}::${string}`;
     const baseUrl = 'https://api.devnet.aptoslabs.com/v1/accounts';
     const url = `${baseUrl}/${marketObjectAddress}/resource/${resourceType}`;
-    console.log('[getMarketDetails] Fetching official API:', url);
+    //console.log('[getMarketDetails] Fetching official API:', url);
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
@@ -487,15 +487,7 @@ export async function getAllMarkets(): Promise<MarketInfo[]> {
  * @returns [long_amount, short_amount, has_bid]
  */
 export async function getUserBid(userAddress: string, marketAddress: string): Promise<[string, string, boolean]> {
-  // Runtime check: warn if marketAddress is the module address
-  if (
-    marketAddress === FACTORY_MODULE_ADDRESS ||
-    marketAddress === DEPLOYED_ADDRESSES.binaryOptionMarket
-  ) {
-    console.warn('[getUserBid] WARNING: marketAddress is the module address, not the market object address!', { marketAddress });
-    // Optionally, throw an error here to catch bugs early
-    // throw new Error('Invalid market address: must be the market object address, not the module address');
-  }
+  console.log('[getUserBid] Called with:', { userAddress, marketAddress });
   const aptos = getAptosClient();
   const result = await aptos.view({
     payload: {
@@ -504,12 +496,36 @@ export async function getUserBid(userAddress: string, marketAddress: string): Pr
       functionArguments: [userAddress, marketAddress],
     }
   });
-  if (result && Array.isArray(result[0]) && result[0].length === 2) {
-    // Return [long_amount, short_amount, has_bid]
-    const long = String(result[0][0]);
-    const short = String(result[0][1]);
+  console.log('[getUserBid] API raw result:', result);
+
+
+  if (Array.isArray(result) && result.length > 0 && result[0] && typeof result[0] === 'object' && Array.isArray((result[0] as any).result) && (result[0] as any).result.length === 2) {
+    const long = String((result[0] as any).result[0]);
+    const short = String((result[0] as any).result[1]);
     const hasBid = Number(long) > 0 || Number(short) > 0;
+    console.log('[getUserBid] Parsed (array[0].result):', { long, short, hasBid });
     return [long, short, hasBid];
   }
+
+  
+  if (result && typeof result === 'object' && Array.isArray((result as any).result) && (result as any).result.length === 2) {
+    const long = String((result as any).result[0]);
+    const short = String((result as any).result[1]);
+    const hasBid = Number(long) > 0 || Number(short) > 0;
+    console.log('[getUserBid] Parsed (object.result):', { long, short, hasBid });
+    return [long, short, hasBid];
+  }
+
+ 
+  if (Array.isArray(result) && result.length === 2 && (typeof result[0] === 'string' || typeof result[0] === 'number')) {
+    const long = String(result[0]);
+    const short = String(result[1]);
+    const hasBid = Number(long) > 0 || Number(short) > 0;
+    console.log('[getUserBid] Parsed (array direct):', { long, short, hasBid });
+    return [long, short, hasBid];
+  }
+
+  // fallback
+  console.warn('[getUserBid] Fallback: No result or unexpected format', { result });
   return ['0', '0', false];
 } 

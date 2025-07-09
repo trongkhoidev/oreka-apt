@@ -200,8 +200,8 @@ const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg 
   if (!chartData.length) return <Box height={`${height}px`} display="flex" alignItems="center" justifyContent="center"><Text color="red.400">No chart data available</Text></Box>;
 
   return (
-    <Box bg="#0A0B10" borderRadius="xl" p={6}>
-      <Flex justify="flex-start" align="center" mb={2}>
+    <Box bg="#0A0B10" borderRadius="xl" p={2}>
+      <Flex justify="flex-start" align="center" >
         <Box>
           <Text fontWeight="bold" fontSize="3xl" color="white">${last?.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) || '0.00'}</Text>
           <Text fontSize="lg" color={change >= 0 ? '#00D7B5' : '#FF6384'}>

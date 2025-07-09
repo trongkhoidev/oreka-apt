@@ -18,6 +18,8 @@ import { useRouter } from 'next/router';
 import { getAvailableTradingPairs } from '../config/tradingPairs';
 import ListAddressMarketCard from './listaddressowner/ListAddressMarketCard';
 import ListAddressTabs from './listaddressowner/ListAddressTabs';
+import { hasUserHoldings } from '../services/userHoldingsService';
+import { debounce } from 'lodash';
 
 interface Market {
   creator: string;
@@ -38,7 +40,7 @@ interface Market {
   final_price: number;
   fee_withdrawn: boolean;
   _key?: string;
-  market_address?: string;
+  market_address: string;
 }
 
 const ListAddressOwner: React.FC = () => {
@@ -70,91 +72,119 @@ const ListAddressOwner: React.FC = () => {
   const allowedPairs = useMemo(() => getAvailableTradingPairs().map(p => p.pair), []);
   const uniquePairs = useMemo(() => Array.from(new Set(markets.map(m => m.pair_name))).filter(pair => allowedPairs.includes(pair)), [markets, allowedPairs]);
 
+  // Cache markets theo filter để tránh gọi lại API không cần thiết
+  const marketsCache = React.useRef<Record<string, Market[]>>({});
+
+  // Debounce fetchMarkets để tránh gọi liên tục khi chuyển tab
+  const debouncedFetchMarkets = useCallback(
+    debounce(async (currentFilter: string, currentWallet: string, currentNetwork: unknown) => {
+      setLoading(true);
+      // Nếu đã có cache cho filter này, dùng cache
+      if (marketsCache.current[currentFilter]) {
+        setMarkets(marketsCache.current[currentFilter]);
+        setLoading(false);
+        return;
+      }
+      try {
+        const marketInfos = await getAllMarkets();
+        if (!marketInfos || marketInfos.length === 0) {
+          setMarkets([]);
+          marketsCache.current[currentFilter] = [];
+          return;
+        }
+        const detailsArr = await Promise.all(
+          marketInfos.map(async (info) => {
+            let details: any = null;
+            try {
+              details = await getMarketDetails(info.market_address);
+            } catch (e) {}
+            return { info, details };
+          })
+        );
+        const marketsData: Market[] = detailsArr.map(({ info, details }) => {
+          const d = details || info;
+          return {
+            creator: d.owner,
+            pair_name: d.pair_name,
+            strike_price: Number(d.strike_price),
+            fee_percentage: Number(d.fee_percentage),
+            total_bids: Number(d.total_bids),
+            long_bids: Number(d.long_bids),
+            short_bids: Number(d.short_bids),
+            total_amount: Number(d.total_amount),
+            long_amount: Number(d.long_amount),
+            short_amount: Number(d.short_amount),
+            result: Number(d.result),
+            is_resolved: !!d.is_resolved,
+            bidding_start_time: Number(d.bidding_start_time),
+            bidding_end_time: Number(d.bidding_end_time),
+            maturity_time: Number(d.maturity_time),
+            final_price: Number(d.final_price),
+            fee_withdrawn: !!d.fee_withdrawn,
+            _key: d.market_address || '',
+            market_address: d.market_address || '',
+          };
+        });
+        setMarkets(marketsData);
+        marketsCache.current[currentFilter] = marketsData;
+      } catch (error) {
+        setMarkets([]);
+        marketsCache.current[currentFilter] = [];
+      } finally {
+        setLoading(false);
+      }
+    }, 400),
+    []
+  );
+
   useEffect(() => {
     const petraNetwork = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'devnet';
       setNetwork(petraNetwork);
   }, []);
 
-  const fetchMarkets = async () => {
-    setLoading(true);
-    try {
-      console.log('[ListAddressOwner] Fetching all markets...');
-      const marketInfos = await getAllMarkets();
-      console.log('[ListAddressOwner] marketInfos:', JSON.stringify(marketInfos));
-      if (!marketInfos || marketInfos.length === 0) {
-        setMarkets([]);
-        setMarketDetails({});
-        //toast({ title: 'No contracts found', description: 'No markets deployed on this network. Please check if the contract is deployed to devnet.', status: 'warning', duration: 4000, isClosable: true });
-        return;
-      }
-      // Fetch details for each market in parallel and merge
-      const detailsArr = await Promise.all(
-        marketInfos.map(async (info) => {
-          let details: unknown[] | null = null;
-          try {
-            console.log('[ListAddressOwner] Fetching details for market:', info.market_address);
-            details = await getMarketDetails(info.market_address);
-            console.log('[ListAddressOwner] Details for', info.market_address, ':', JSON.stringify(details));
-          } catch (e) {
-            console.warn(`[ListAddressOwner] No details for market ${info.market_address}:`, e);
-          }
-          return { info, details };
-        })
-      );
-      const marketsData: Market[] = detailsArr.map(({ info, details }) => ({
-        creator: info.owner,
-        pair_name: info.pair_name,
-        strike_price: Number(info.strike_price),
-        fee_percentage: Number(info.fee_percentage),
-        total_bids: details && Array.isArray(details) ? Number(details[4]) : 0,
-        long_bids: details && Array.isArray(details) ? Number(details[5]) : 0,
-        short_bids: details && Array.isArray(details) ? Number(details[6]) : 0,
-        total_amount: details && Array.isArray(details) ? Number(details[7]) : 0,
-        long_amount: details && Array.isArray(details) ? Number(details[8]) : 0,
-        short_amount: details && Array.isArray(details) ? Number(details[9]) : 0,
-        result: details && Array.isArray(details) ? Number(details[10]) : 2,
-        is_resolved: details && Array.isArray(details) ? Boolean(details[11]) : false,
-        bidding_start_time: Number(info.bidding_start_time),
-        bidding_end_time: Number(info.bidding_end_time),
-        maturity_time: Number(info.maturity_time),
-        final_price: details && Array.isArray(details) ? Number(details[15]) : 0,
-        fee_withdrawn: false, // If needed, fetch from resource
-        _key: info.market_address,
-        market_address: info.market_address,
-      }));
-      setMarkets(marketsData);
-      // ... keep the rest of the logic unchanged
-      const detailsMap: Record<string, unknown[] | null> = {};
-      detailsArr.forEach(({ info, details }) => {
-        if (details) detailsMap[info.market_address] = details;
-      });
-      setMarketDetails(detailsMap);
-    } catch (error) {
-      console.error('[ListAddressOwner] Error fetching markets:', error);
-      toast({ title: 'Error', description: 'Failed to fetch markets. Please check if the contract is deployed to the correct network (devnet/localnet).', status: 'error', duration: 4000, isClosable: true });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchMarkets();
+    debouncedFetchMarkets(filter, walletAddress, network);
+    return () => {
+      debouncedFetchMarkets.cancel();
+    };
   }, [filter, walletAddress, network]);
 
-  // Helper: get phase for a market (Pending, Bidding, Maturity, Resolved, Expired)
+  // Helper: get phase for a market (Pending, Bidding, Maturity, Resolved)
   function getMarketPhase(market: Market) {
     const now = Math.floor(Date.now() / 1000);
-    if (market.is_resolved) return 'Resolved';
+    if (market.is_resolved) return 'Maturity';
     if (now < market.bidding_start_time) return 'Pending';
     if (now >= market.bidding_start_time && now < market.bidding_end_time) return 'Bidding';
     if (now >= market.bidding_end_time && now < market.maturity_time && !market.is_resolved) return 'Maturity';
-    if (now >= market.maturity_time && !market.is_resolved) return 'Expired';
+    if (now >= market.maturity_time && !market.is_resolved) return 'Maturity';
     return 'Unknown';
   }
 
   // My Holdings filter state
   const [myHoldingsLoading, setMyHoldingsLoading] = useState(false);
   const [myHoldingsMarkets, setMyHoldingsMarkets] = useState<Market[]>([]);
+
+  // Fetch My Holdings when needed (robust, always after markets are fetched)
+  useEffect(() => {
+    if (filter !== 'holdings') return;
+    setMyHoldingsLoading(true);
+    Promise.all(markets.map(async (market) => {
+      try {
+        console.log('[DEBUG] Checking holdings for market:', market.market_address, 'user:', walletAddress);
+        const hasHoldings = await hasUserHoldings(walletAddress, market.market_address);
+        console.log('[DEBUG] hasUserHoldings result:', { market: market.market_address, hasHoldings });
+        if (hasHoldings) return market;
+      } catch (e) {
+        console.log('[DEBUG] Error checking holdings for market:', market.market_address, e);
+      }
+      return null;
+    })).then(results => {
+      const filtered = results.filter(Boolean) as Market[];
+      console.log('[DEBUG] Final myHoldingsMarkets:', filtered);
+      setMyHoldingsMarkets(filtered);
+      setMyHoldingsLoading(false);
+    });
+  }, [markets, walletAddress, filter]);
 
   // Refactor handleAddressClick: always use market.market_address for navigation
   const handleAddressClick = useCallback((market: Market, marketDetails: unknown) => {
@@ -185,52 +215,29 @@ const ListAddressOwner: React.FC = () => {
         (market._key && market._key.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
+    const now = Math.floor(Date.now() / 1000);
     if (filter === 'active') {
+      // Quests: chỉ phase Bidding
       filtered = filtered.filter(market => {
-        const details = marketDetails[market._key || market.pair_name];
-        if (!Array.isArray(details)) return false;
-        const now = Math.floor(Date.now() / 1000);
-        const is_resolved = Boolean(details[11]);
-        const bidding_start_time = Number(details[13]);
-        const bidding_end_time = Number(details[14]);
-        if (is_resolved) return false;
-        if (now < bidding_start_time) return true; // Pending
-        if (now >= bidding_start_time && now < bidding_end_time) return true; // Bidding
-        return false;
+        return now >= market.bidding_start_time && now < market.bidding_end_time && !market.is_resolved;
       });
     } else if (filter === 'resolved') {
+      // Results: chỉ phase Maturity (sau bidding_end_time, trước maturity_time, chưa resolved)
       filtered = filtered.filter(market => {
-        const details = marketDetails[market._key || market.pair_name];
-        if (!Array.isArray(details)) return false;
-        const now = Math.floor(Date.now() / 1000);
-        const is_resolved = Boolean(details[11]);
-        const bidding_end_time = Number(details[14]);
-        const maturity_time = Number(details[15]);
-        if (is_resolved) return false;
-        if (now >= bidding_end_time && now < maturity_time) return true; // Maturity
-        return false;
+        return now >= market.bidding_end_time && now < market.maturity_time && !market.is_resolved;
       });
     } else if (filter === 'my') {
       filtered = filtered.filter(market => market.creator.toLowerCase() === walletAddress.toLowerCase());
     } else if (filter === 'holdings') {
-      setMyHoldingsLoading(true);
-      Promise.all(filtered.map(async (market) => {
-        try {
-          const res = await getUserBid(walletAddress, market._key || '');
-          if (res && (Number(res[0]) > 0 || res[1])) return market;
-        } catch {}
-        return null;
-      })).then(results => {
-        setMyHoldingsMarkets(results.filter((m): m is Market => Boolean(m)));
-        setMyHoldingsLoading(false);
-      });
       filtered = [];
     }
     setFilteredMarkets(filtered);
   }, [markets, searchTerm, filter, walletAddress, allowedPairs, marketDetails]);
 
-  // For My Holdings, use myHoldingsMarkets if filter is 'holdings'
-  const filtered = filter === 'holdings' ? myHoldingsMarkets.filter(m => !pairFilter || m.pair_name === pairFilter) : filteredMarkets.filter(market => !pairFilter || market.pair_name === pairFilter);
+  // Main filtered list
+  const filtered = filter === 'holdings'
+    ? myHoldingsMarkets.filter(m => !pairFilter || m.pair_name === pairFilter)
+    : filteredMarkets.filter(market => !pairFilter || market.pair_name === pairFilter);
 
   // Polling fetch price for all unique trading pairs every 20s
   useEffect(() => {
@@ -348,7 +355,6 @@ const ListAddressOwner: React.FC = () => {
                     <ListAddressMarketCard
                       key={market._key || market.pair_name}
                       market={market}
-                      details={marketDetails[market._key || market.pair_name]}
                       onClick={() => handleAddressClick(market, marketDetails[market._key || market.pair_name])}
                       pairPrices={pairPrices}
                       getMarketPhase={getMarketPhase}
@@ -358,7 +364,10 @@ const ListAddressOwner: React.FC = () => {
                   ))}
                 </SimpleGrid>
               )}
-              {!loading && filteredMarkets.length === 0 && (
+              {!loading && (
+                (filter === 'holdings' && myHoldingsMarkets.length === 0) ||
+                (filter !== 'holdings' && filteredMarkets.length === 0)
+              ) && (
                 <Box p={8} textAlign="center">
                   <Text color="gray.500">No markets found. Try deploying a new market or check your filters.</Text>
                 </Box>

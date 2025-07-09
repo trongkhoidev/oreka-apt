@@ -276,16 +276,6 @@ const PositionChart: React.FC<PositionChartProps> = ({
           <Box w={3} h={3} borderRadius="full" bg="#FF6B81" />
           <Text color="#FF6B81" fontWeight="bold">Short {(last as ChartDataPoint).shortPercent.toFixed(1)}%</Text>
         </HStack>
-        {marketAddress && (
-          <HStack>
-            {lastUpdate && (
-              <Text fontSize="xs" color="gray.400">
-                Last update:
-                {format(lastUpdate, 'HH:mm:ss')}
-              </Text>
-            )}
-          </HStack>
-        )}
       </HStack>
       
       {/* Timeline Progress */}
@@ -363,19 +353,17 @@ const PositionChart: React.FC<PositionChartProps> = ({
   // Timeline tick formatter - show actual time instead of percentage
   const getTimelineTickFormatter = () => {
     if (!biddingStartTime || !biddingEndTime) {
-      return (t: number) => format(new Date(t), 'HH:mm');
+      // Show both date and time for clarity
+      return (t: number) => format(new Date(t), 'MMM d HH:mm');
     }
-    
     return (t: number) => {
       const time = new Date(t);
       const start = new Date(biddingStartTime);
       const end = new Date(biddingEndTime);
-      
-      if (time < start) return format(start, 'HH:mm');
-      if (time > end) return format(end, 'HH:mm');
-      
-      // Show time in HH:mm format
-      return format(time, 'HH:mm');
+      if (time < start) return format(start, 'MMM d HH:mm');
+      if (time > end) return format(end, 'MMM d HH:mm');
+      // Show time in 'MMM d HH:mm:ss' format for clarity
+      return format(time, 'MMM d HH:mm');
     };
   };
 
@@ -388,7 +376,7 @@ const PositionChart: React.FC<PositionChartProps> = ({
   };
 
   return (
-    <Box bg="#0A0B10" borderRadius="xl" p={3}>
+    <Box bg="#0A0B10" borderRadius="xl" p={2}>
       <style jsx>{`
         @keyframes pulse {
           0% { opacity: 1; }

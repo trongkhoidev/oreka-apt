@@ -9,3 +9,5 @@ automatically search to find information and update the latest changes in the te
 after fixing an error, you must re-read it to see if any new errors appear or if the error has not completely disappeared, then you must continue editing until the error is gone.
 When I send an error, if I have a code editing, always automatically do it to me, no need to ask my opinion again
 Comment code is always in English, do not use Vietnamese
+Cursor Tab: answer in Vietnamese, my question can be in both English and Vietnamese, must be flexible to understand
+Comment Code in File: always in English

@@ -41,6 +41,7 @@ const MarketTimeline: React.FC<MarketTimelineProps> = ({ phase, phaseNames, mark
           <VStack align="start" spacing={0} fontWeight="bold">
             <Text fontSize="lg" color={phase === 1 ? 'blue.400' : 'gray.500'}>Bidding</Text>
             <Text fontSize="xs" color="gray.500">{market?.bidding_start_time ? new Date(Number(market.bidding_start_time) * 1000).toLocaleString() : 'Waiting for Start'}</Text>
+            <Text fontSize="xs" color="gray.500">{market?.bidding_end_time ? new Date(Number(market.bidding_end_time) * 1000).toLocaleString() : 'Waiting for End'}</Text>
           </VStack>
           <Spacer />
           {canResolve && (

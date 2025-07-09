@@ -116,7 +116,6 @@ export default function ConnectWallet() {
           border="1px solid #23262f"
         >
           {wallet && <Image src={wallet.icon} alt={wallet.name} boxSize="28px" />}
-          <Icon as={FaWallet} color="#4F8CFF" fontSize="xl" />
           <Text
             fontWeight="bold"
             color="white"
@@ -126,7 +125,7 @@ export default function ConnectWallet() {
             borderRadius="md"
             letterSpacing="wider"
           >
-            {shortenAddress(account.address.toString())}
+            {shortenAddress(account?.address?.toString?.() || "")}
           </Text>
           <Box
             px={2}
