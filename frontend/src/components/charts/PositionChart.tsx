@@ -277,23 +277,6 @@ const PositionChart: React.FC<PositionChartProps> = ({
           <Text color="#FF6B81" fontWeight="bold">Short {(last as ChartDataPoint).shortPercent.toFixed(1)}%</Text>
         </HStack>
       </HStack>
-      
-      {/* Timeline Progress */}
-      {biddingStartTime && biddingEndTime && (
-        <HStack spacing={2}>
-          <Text fontSize="xs" color="gray.400">Timeline:</Text>
-          <Progress 
-            value={timelineProgress} 
-            size="sm" 
-            width="100px" 
-            colorScheme="blue"
-            borderRadius="full"
-          />
-          <Text fontSize="xs" color="gray.400">
-            {timelineProgress.toFixed(0)}%
-          </Text>
-        </HStack>
-      )}
     </Flex>
   );
 

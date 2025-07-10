@@ -90,7 +90,7 @@ export class PriceService {
         timestamp: Date.now()
       };
     } catch (error) {
-      console.error('Error fetching price from Coinbase:', error);
+      //console.error('Error fetching price from Coinbase:', error);
       
       // Fallback if Coinbase API is not working
       try {
@@ -103,7 +103,7 @@ export class PriceService {
           timestamp: Date.now()
         };
       } catch (backupError) {
-        console.error('Error fetching backup price from Binance:', backupError);
+        //console.error('Error fetching backup price from Binance:', backupError);
         throw error;
       }
     }
@@ -134,7 +134,7 @@ export class PriceService {
         const priceData = await this.fetchPrice(symbol);
         callback(priceData);
       } catch (error) {
-        console.error(`Error fetching initial price for ${symbol}:`, error);
+        //console.error(`Error fetching initial price for ${symbol}:`, error);
       }
     });
 
@@ -207,18 +207,18 @@ export class PriceService {
               try {
                 callback(priceData);
               } catch (error) {
-                console.error('Error in price subscriber callback:', error);
+                //console.error('Error in price subscriber callback:', error);
               }
             });
           }
         }
       } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+        //console.error('Error parsing WebSocket message:', error);
       }
     };
 
     this.webSocket.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      //console.error('WebSocket error:', error);
     };
 
     this.webSocket.onclose = () => {
@@ -294,7 +294,7 @@ export class PriceService {
         const priceData = await this.fetchPrice(symbol);
         callback(priceData);
       } catch (error) {
-        console.error(`Error fetching price for ${symbol}:`, error);
+        //console.error(`Error fetching price for ${symbol}:`, error);
       }
     }, interval);
 
@@ -348,11 +348,11 @@ export class PriceService {
         volume: parseFloat(candle[5])
       }));
     } catch (error) {
-      console.error('Error fetching klines from Binance:', error);
+      //console.error('Error fetching klines from Binance:', error);
       
       // Fallback to Coinbase API for basic price data
       try {
-        console.log('Falling back to Coinbase API for price data');
+        //console.log('Falling back to Coinbase API for price data');
         const coinbaseSymbol = this.formatSymbolForCoinbase(symbol);
         
         // For Coinbase fallback, we'll create synthetic klines from spot prices
@@ -373,7 +373,7 @@ export class PriceService {
               volume: 0
             });
           } catch (priceError) {
-            console.error('Error fetching fallback price:', priceError);
+            //console.error('Error fetching fallback price:', priceError);
             // Use a default price if API fails
             syntheticKlines.push({
               time: time,
@@ -388,7 +388,7 @@ export class PriceService {
         
         return syntheticKlines;
       } catch (fallbackError) {
-        console.error('Error with Coinbase fallback:', fallbackError);
+        //console.error('Error with Coinbase fallback:', fallbackError);
         throw error;
       }
     }

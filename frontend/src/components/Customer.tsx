@@ -165,6 +165,31 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const maturity = market?.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
   const fee = market?.fee_percentage ? (Number(market.fee_percentage) / 10).toFixed(1) : '--';
 
+  const getClaimableAmount = () => {
+    if (!market || !market.is_resolved || !account?.address) return 0;
+    const userLong = userPositions.long;
+    const userShort = userPositions.short;
+    const result = Number(market.result);
+    const longAmount = Number(market.long_amount);
+    const shortAmount = Number(market.short_amount);
+    // Logic giống contract Move
+    if (result === 0 && userLong > 0) {
+      // LONG win
+      const winnerPool = longAmount;
+      const winningPool = shortAmount;
+      return userLong + (userLong * winningPool) / winnerPool;
+    } else if (result === 1 && userShort > 0) {
+      // SHORT win
+      const winnerPool = shortAmount;
+      const winningPool = longAmount;
+      return userShort + (userShort * winningPool) / winnerPool;
+    }
+    return 0;
+  };
+
+  const claimableAmount = getClaimableAmount();
+  const isWinner = claimableAmount > 0;
+
   // Handlers
   const handleBid = async () => {
     if (selectedSide === null || !bidAmount || !signAndSubmitTransaction) return;
@@ -367,16 +392,17 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
               borderColor="gray.700"
               boxShadow="0 4px 32px 0 rgba(0,0,0,0.25)"
             >
-              <Flex justify="space-between" align="center" textAlign="center" fontSize="20px" color="#FEDF56">
+              <Flex justify="space-between" align="center" textAlign="center" fontSize="20px" color="white">
                 <HStack justify="center" align="center">
                   <Text color="gray.400">Strike Price: </Text>
                   <Text fontWeight="bold">
-                    {strike} USD
+                    {strike} 
                   </Text>
+                  <Text fontWeight="bold" color="#FEDF56">USD</Text>
                 </HStack>
               </Flex>
 
-              {/* Show Final Price in Maturity phase - chỉ hiển thị khi market đã resolve */}
+              {/* Show Final Price in Maturity phase */}
               {phase === Phase.Maturity && market?.is_resolved && market?.final_price && (
                 <Flex justify="space-between" align="center" mt={2}>
                   <HStack fontSize="20px">
@@ -389,17 +415,19 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 </Flex>
               )}
 
-              {/* Chỉ hiển thị nút Claim Rewards khi market đã resolve */}
-              {phase === Phase.Maturity && market?.is_resolved && (
+              {/* Chỉ hiển thị nút Claim Rewards cho address thắng và phase Maturity */}
+              {phase === Phase.Maturity && market?.is_resolved && isWinner && (
                 <Button
                   onClick={handleClaim}
                   colorScheme="yellow"
-                  bg="#FEDF56"
+                  bg=""
+                  border="1px solid #FEDF56"
                   color="white"
-                  _hover={{ bg: "#FFE56B" }}
+                  _hover={{ bg: "#0d6d0c" }}
                   width="100%"
                   mt={4}
                   isLoading={isSubmitting}
+                  rightIcon={<Text fontWeight="bold" color="#00E1D6" ml={2}>{(claimableAmount / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} APT</Text>}
                 >
                   Claim Rewards
                 </Button>
