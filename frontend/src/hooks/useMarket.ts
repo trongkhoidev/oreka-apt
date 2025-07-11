@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getMarketDetails } from '@/services/aptosMarketService';
+import EventListenerService from '../services/EventListenerService';
 
 export function useMarket(marketObjectAddress: string) {
   const [market, setMarket] = useState<unknown>(null);
@@ -20,9 +21,13 @@ export function useMarket(marketObjectAddress: string) {
   }, [marketObjectAddress]);
 
   useEffect(() => {
-    if (marketObjectAddress) {
+    if (!marketObjectAddress) return;
+    fetchMarket(); // initial fetch
+    const unsubscribe = EventListenerService.getInstance().subscribe(marketObjectAddress, (events) => {
+      // Khi có event mới liên quan đến market, fetch lại market
       fetchMarket();
-    }
+    });
+    return () => { if (unsubscribe) unsubscribe(); };
   }, [marketObjectAddress, fetchMarket]);
 
   return { market, loading, error, refresh: fetchMarket };

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import PositionRealtimeService, { PositionData, PositionUpdate, BidEvent } from '../services/PositionRealtimeService';
+import EventListenerService, { MarketEvent } from '../services/EventListenerService';
 
 interface UsePositionRealtimeOptions {
   marketAddress: string;
@@ -183,6 +184,17 @@ export const usePositionRealtime = ({
       setBidEvents(events);
     }
   }, [marketAddress, biddingStartTime, biddingEndTime, realtimeService]);
+
+  // Effect: subscribe to on-chain events and update when new event arrives
+  useEffect(() => {
+    if (!marketAddress) return;
+    loadInitialData(); // initial fetch
+    const unsubscribe = EventListenerService.getInstance().subscribe(marketAddress, (events: MarketEvent[]) => {
+      // Nếu có event mới liên quan đến market, update lại position và bidEvents
+      loadInitialData();
+    });
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, [marketAddress, loadInitialData]);
 
   return {
     positionData,

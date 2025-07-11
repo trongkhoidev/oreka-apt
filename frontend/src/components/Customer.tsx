@@ -3,7 +3,7 @@ import {
   Box, Flex, HStack, Text, Button, Container, useToast, Spinner, Tabs, TabList, TabPanels, Tab, TabPanel
 } from '@chakra-ui/react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
-import { bid, claim, resolveMarket, getMarketDetails, getUserBid } from '../services/aptosMarketService';
+import { bid, claim, resolveMarket, getMarketDetails, getUserBid, withdrawFee } from '../services/aptosMarketService';
 import MarketCharts from './charts/MarketCharts';
 import { PriceService } from '../services/PriceService';
 import { getAvailableTradingPairs } from '../config/tradingPairs';
@@ -16,6 +16,7 @@ import ChartDataPrefetchService from '../services/ChartDataPrefetchService';
 import { buildPositionHistoryFromEvents } from '../services/positionHistoryService';
 import PositionRealtimeService from '../services/PositionRealtimeService';
 import { getStandardPairName, getPriceFeedIdFromPairName } from '../config/pairMapping';
+import EventListenerService from '../services/EventListenerService';
 
 enum Side { Long, Short }
 enum Phase { Pending = 0, Bidding = 1, Maturity = 2 }
@@ -46,6 +47,19 @@ async function fetchFinalPriceFromHermes(pairName: string): Promise<number> {
   const realPrice = price * Math.pow(10, expo);
   return Math.round(realPrice * 1e8); // fixed 8 số lẻ cho contract
 }
+
+// Helper: format claimable amount with 2, 4, or 6 decimals
+const formatClaimAmount = (amount: number) => {
+  if (!isFinite(amount)) return '--';
+  // Chuyển về số thực APT
+  const apt = amount / 1e8;
+  // Nếu là số nguyên hoặc chỉ có 2 số lẻ, hiển thị 2
+  if (Number.isInteger(apt * 100)) return apt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Nếu có 4 số lẻ, hiển thị 4
+  if (Number.isInteger(apt * 10000)) return apt.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  // Nếu có nhiều số lẻ hơn, hiển thị 6
+  return apt.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+};
 
 const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const { connected, account, signAndSubmitTransaction } = useWallet();
@@ -145,6 +159,19 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     return () => { isMounted = false; };
   }, [contractAddress, phase]);
 
+  // Fetch user bid on mount and when contractAddress changes
+  useEffect(() => {
+    if (!contractAddress || !account?.address) return;
+    fetchUserPositions(); // initial fetch
+    // Lắng nghe event BidEvent liên quan đến market này
+    const unsubscribe = EventListenerService.getInstance().subscribe(contractAddress, (events) => {
+      if (events.some(e => e.type === 'BidEvent' && e.data.user?.toLowerCase() === account.address.toString().toLowerCase())) {
+        fetchUserPositions();
+      }
+    });
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, [contractAddress, account?.address, fetchUserPositions]);
+
   // Fetch market data on mount and when contractAddress changes
   useEffect(() => { fetchMarketData(); }, [fetchMarketData]);
 
@@ -185,6 +212,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const maturity = market?.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
   const fee = market?.fee_percentage ? (Number(market.fee_percentage) / 10).toFixed(1) : '--';
 
+  // Tính claimableAmount đúng logic Move contract
   const getClaimableAmount = () => {
     if (!market || !market.is_resolved || !account?.address) return 0;
     const userLong = userPositions.long;
@@ -192,23 +220,41 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     const result = Number(market.result);
     const longAmount = Number(market.long_amount);
     const shortAmount = Number(market.short_amount);
-    // Logic giống contract Move
+    const feePercentage = Number(market.fee_percentage);
+    let rawAmount = 0;
     if (result === 0 && userLong > 0) {
       // LONG win
       const winnerPool = longAmount;
       const winningPool = shortAmount;
-      return userLong + (userLong * winningPool) / winnerPool;
+      rawAmount = userLong + Math.floor((userLong * winningPool) / winnerPool);
     } else if (result === 1 && userShort > 0) {
       // SHORT win
       const winnerPool = shortAmount;
       const winningPool = longAmount;
-      return userShort + (userShort * winningPool) / winnerPool;
+      rawAmount = userShort + Math.floor((userShort * winningPool) / winnerPool);
+    } else {
+      return 0;
     }
-    return 0;
+    // Fee: (fee_percentage * raw_amount) / 1000
+    const fee = Math.floor((feePercentage * rawAmount) / 1000);
+    return rawAmount - fee;
   };
 
   const claimableAmount = getClaimableAmount();
   const isWinner = claimableAmount > 0;
+
+  // Kiểm tra user là owner
+  const isOwner = account?.address && market?.creator && account.address.toString().toLowerCase() === market.creator.toLowerCase();
+  // Kiểm tra đã withdraw fee chưa
+  const canWithdrawFee = isOwner && market?.is_resolved && !market?.fee_withdrawn;
+  // Tính fee đúng logic contract
+  const getWithdrawFeeAmount = () => {
+    if (!market) return 0;
+    const feePercentage = Number(market.fee_percentage);
+    const totalAmount = Number(market.total_amount);
+    return Math.floor((feePercentage * totalAmount) / 1000);
+  };
+  const withdrawFeeAmount = getWithdrawFeeAmount();
 
   // Handlers
   const handleBid = async () => {
@@ -272,6 +318,21 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       fetchMarketData();
     } catch (error: unknown) {
       toast({ title: 'Claim failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handler withdraw fee
+  const handleWithdrawFee = async () => {
+    if (!signAndSubmitTransaction) return;
+    setIsSubmitting(true);
+    try {
+      await withdrawFee(signAndSubmitTransaction, contractAddress);
+      toast({ title: 'Withdraw fee transaction submitted', status: 'success' });
+      fetchMarketData();
+    } catch (error: unknown) {
+      toast({ title: 'Withdraw fee failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
       setIsSubmitting(false);
     }
@@ -451,9 +512,25 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                   width="100%"
                   mt={4}
                   isLoading={isSubmitting}
-                  rightIcon={<Text fontWeight="bold" color="#00E1D6" ml={2}>{(claimableAmount / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} APT</Text>}
+                  rightIcon={<Text fontWeight="bold" color="#00E1D6" ml={2}>{formatClaimAmount(claimableAmount)} APT</Text>}
                 >
                   Claim Rewards
+                </Button>
+              )}
+              {/* Withdraw Fee button cho Owner */}
+              {phase === Phase.Maturity && canWithdrawFee && (
+                <Button
+                  onClick={handleWithdrawFee}
+                  colorScheme="blue"
+                  border="1px solid #4F8CFF"
+                  color="white"
+                  _hover={{ bg: "#0d6d0c" }}
+                  width="100%"
+                  mt={4}
+                  isLoading={isSubmitting}
+                  rightIcon={<Text fontWeight="bold" color="#4F8CFF" ml={2}>{formatClaimAmount(withdrawFeeAmount)} APT</Text>}
+                >
+                  Withdraw Fee
                 </Button>
               )}
             </Box>

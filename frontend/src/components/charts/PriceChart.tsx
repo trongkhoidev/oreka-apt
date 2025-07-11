@@ -72,6 +72,9 @@ function getTimeUnit(min: number, max: number) {
   return 'month';
 }
 
+const CACHE_DURATION = 5 * 60 * 1000; // 5 phút
+const priceCache: Record<string, { data: CoinGeckoCandle[]; timestamp: number }> = {};
+
 const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg = '#181A20', height = 400 }) => {
   const [interval, setInterval] = useState<IntervalValue>('24h');
   const [chartData, setChartData] = useState<CoinGeckoCandle[]>([]);
@@ -81,13 +84,24 @@ const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg 
     let isMounted = true;
     setIsLoading(true);
     const { cg, binance, limit } = INTERVAL_MAP[interval];
+    const cacheKey = `${coinGeckoId}_${interval}`;
+    const now = Date.now();
+    if (priceCache[cacheKey] && now - priceCache[cacheKey].timestamp < CACHE_DURATION) {
+      setChartData(priceCache[cacheKey].data);
+      setIsLoading(false);
+      return;
+    }
     fetchCoinGeckoHistory(coinGeckoId, cg as any)
       .then(data => {
         if (isMounted && data.length > 0) {
           setChartData(data);
+          priceCache[cacheKey] = { data, timestamp: Date.now() };
         } else {
           fetchBinanceKlines(binanceSymbol, binance, limit).then(binanceData => {
-            if (isMounted) setChartData(binanceData);
+            if (isMounted) {
+              setChartData(binanceData);
+              priceCache[cacheKey] = { data: binanceData, timestamp: Date.now() };
+            }
           });
         }
       })

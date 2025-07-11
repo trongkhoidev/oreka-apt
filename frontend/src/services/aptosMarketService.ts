@@ -396,7 +396,7 @@ export async function claim(
         data: {
             function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::claim`,
             typeArguments: [],
-            functionArguments: [marketAddress, Math.floor(Date.now() / 1000).toString()],
+            functionArguments: [marketAddress], // chỉ truyền 1 argument
         }
     };
     const response = await signAndSubmitTransaction(transaction);
@@ -442,7 +442,7 @@ export async function withdrawFee(
         data: {
             function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::withdraw_fee`,
             typeArguments: [],
-            functionArguments: [marketAddress, Math.floor(Date.now() / 1000).toString()],
+            functionArguments: [marketAddress], // chỉ truyền 1 argument
         }
     };
     const response = await signAndSubmitTransaction(transaction);
