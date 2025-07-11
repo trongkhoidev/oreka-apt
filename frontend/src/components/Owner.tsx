@@ -35,7 +35,7 @@ import {
   Flex
 } from '@chakra-ui/react';
 import { FaWallet, FaArrowUp, FaArrowDown, FaClock, FaGasPump, FaRocket, FaInfoCircle } from 'react-icons/fa';
-import { getAvailableTradingPairs, TradingPairInfo } from '../config/tradingPairs';
+import { TradingPairInfo, getPriceFeedIdFromPairName } from '../config/tradingPairs';
 import { PriceService } from '../services/PriceService';
 import { format } from 'date-fns-tz';
 import { useRouter } from 'next/router';
@@ -110,7 +110,16 @@ const Owner: React.FC = () => {
   const formBg = useColorModeValue('white', 'gray.700');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
 
-  const availablePairs: TradingPairInfo[] = getAvailableTradingPairs();
+  // Tạo danh sách các cặp mặc định từ mapping
+  const availablePairs: TradingPairInfo[] = [
+    { pair: 'APT/USD', symbol: 'APTUSDT', priceFeedId: '03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5' },
+    { pair: 'BTC/USD', symbol: 'BTCUSDT', priceFeedId: 'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43' },
+    { pair: 'ETH/USD', symbol: 'ETHUSDT', priceFeedId: 'ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace' },
+    { pair: 'SOL/USD', symbol: 'SOLUSDT', priceFeedId: 'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d' },
+    { pair: 'SUI/USD', symbol: 'SUIUSDT', priceFeedId: '23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744' },
+    { pair: 'BNB/USD', symbol: 'BNBUSDT', priceFeedId: '2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f' },
+    { pair: 'WETH/USD', symbol: 'WETHUSDT', priceFeedId: '9d4294bbcd1174d6f2003ec365831e64cc31d9f6f15a2b85399db8d5000960f6' },
+  ];
 
   const [markets, setMarkets] = useState<Market[]>([]);
 
@@ -131,26 +140,29 @@ const Owner: React.FC = () => {
           return { info, details };
         })
       );
-      const mergedMarkets = detailsArr.map(({ info, details }) => ({
-        creator: info.owner,
-        pair_name: info.pair_name,
-        strike_price: Number(info.strike_price),
-        fee_percentage: Number(info.fee_percentage),
-        total_bids: details ? Number(details[4]) : 0,
-        long_bids: details ? Number(details[5]) : 0,
-        short_bids: details ? Number(details[6]) : 0,
-        total_amount: details ? Number(details[7]) : 0,
-        long_amount: details ? Number(details[8]) : 0,
-        short_amount: details ? Number(details[9]) : 0,
-        result: details ? Number(details[10]) : 2,
-        is_resolved: details ? Boolean(details[11]) : false,
-        bidding_start_time: Number(info.bidding_start_time),
-        bidding_end_time: Number(info.bidding_end_time),
-        maturity_time: Number(info.maturity_time),
-        final_price: details ? Number(details[15]) : 0,
-        fee_withdrawn: false, // If needed, fetch from resource
-        _key: info.market_address
-      }));
+      const mergedMarkets = detailsArr.map(({ info, details }) => {
+        const d = details || info;
+        return {
+          creator: d.owner,
+          pair_name: d.pair_name,
+          strike_price: Number(d.strike_price),
+          fee_percentage: Number(d.fee_percentage),
+          total_bids: Number(d.total_bids),
+          long_bids: Number(d.long_bids),
+          short_bids: Number(d.short_bids),
+          total_amount: Number(d.total_amount),
+          long_amount: Number(d.long_amount),
+          short_amount: Number(d.short_amount),
+          result: Number(d.result),
+          is_resolved: !!d.is_resolved,
+          bidding_start_time: Number(d.bidding_start_time),
+          bidding_end_time: Number(d.bidding_end_time),
+          maturity_time: Number(d.maturity_time),
+          final_price: Number(d.final_price),
+          fee_withdrawn: !!d.fee_withdrawn,
+          _key: d.market_address || '',
+        };
+      });
       setMarkets(mergedMarkets);
     } catch (error) {
       console.error('Error fetching deployed contracts:', error);
@@ -231,7 +243,7 @@ const Owner: React.FC = () => {
       const biddingEndTimestamp = Math.floor(new Date(`${biddingEndDate} ${biddingEndTime}`).getTime() / 1000);
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
       const params = {
-        pairName: selectedPair.pair,
+        pairName: getPriceFeedIdFromPairName(selectedPair.pair),
         strikePrice: strikePriceInteger,
         feePercentage: feeValue,
         biddingStartTime: biddingStartTimestamp,
@@ -270,7 +282,7 @@ const Owner: React.FC = () => {
         return;
       }
       const params = {
-        pairName: selectedPair.pair,
+        pairName: getPriceFeedIdFromPairName(selectedPair.pair),
         strikePrice: strikePriceInteger,
         feePercentage: feeValue,
         biddingStartTime: biddingStartTimestamp,

@@ -16,6 +16,14 @@ interface MarketInfoProps {
   phaseNames: string[];
 }
 
+const formatPool = (value: string) => {
+  const num = Number(value);
+  if (isNaN(num)) return value;
+  // If more than 2 decimals and non-zero, show 4, else 2
+  const decimals = (num * 100) % 1 === 0 ? 2 : 4;
+  return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+};
+
 const MarketInfo: React.FC<MarketInfoProps> = ({ assetLogo, pairName, strike, maturity, pool, fee, phase, phaseNames }) => (
   <Box display="flex" alignItems="center" mb={6}>
     <HStack>
@@ -32,7 +40,7 @@ const MarketInfo: React.FC<MarketInfoProps> = ({ assetLogo, pairName, strike, ma
         <HStack spacing={2}>
           <HStack color="gray.400">
             <Icon as={PiChartLineUpLight} />
-            <Text color="gray.400" fontSize="sm">{pool} APT |</Text>
+            <Text color="gray.400" fontSize="sm">{formatPool(pool)} APT |</Text>
           </HStack>
           <HStack color="gray.400">
             <Icon as={FaRegClock} />

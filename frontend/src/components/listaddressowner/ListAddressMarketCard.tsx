@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Badge, Text, HStack, Flex, Icon } from '@chakra-ui/react';
 import { FaRegClock } from 'react-icons/fa';
 import { getMarketDetails } from '../../services/aptosMarketService';
+import { getStandardPairName } from '../../config/pairMapping';
 
 interface Market {
   creator: string;
@@ -100,17 +101,18 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
   const totalDeposited = total > 0 ? (total / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0';
   const phase = getMarketPhase(data);
   const phaseColor = getPhaseColor(phase);
-  const baseToken = data.pair_name.split('/')[0].toUpperCase();
-  const strikeColor = getStrikeColor(baseToken);
-  const strike = (data.strike_price / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const maturity = new Date(data.maturity_time * 1000).toLocaleString();
-  const title = (
-    <span>
-      {data.pair_name} will reach <span style={{ color: strikeColor, fontWeight: 700 }}>${strike}</span> by {maturity}?
-    </span>
-  );
-  const imgIndex = getStableIndex(data._key || data.pair_name, 10);
-  const imgSrc = `/images/${baseToken}/${baseToken}${imgIndex}.png`;
+  
+  // pairName đã được chuẩn hóa từ backend, chỉ cần lấy baseToken
+  const pairName = data.pair_name;
+  let baseToken = '';
+  if (pairName && pairName.includes('/')) {
+    baseToken = pairName.split('/')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  }
+  // Ảnh chính: lấy từ thư mục con (ví dụ: /images/apt/apt1.png)
+  const imgIndex = getStableIndex(data._key || pairName, 10);
+  const imgSrc = baseToken ? `/images/${baseToken}/${baseToken}${imgIndex}.png` : '/images/coinbase.png';
+  // Ảnh nhỏ (icon): lấy từ {baseToken}-logo.png
+  const logoSrc = baseToken ? `/images/${baseToken}-logo.png` : '/images/coinbase.png';
   const now = Math.floor(Date.now() / 1000);
   let biddingStatus = null;
   let biddingColor = '#4F8CFF';
@@ -158,6 +160,16 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
   const isShortWin = isMaturity && isResolved && result === 1;
   const isExpired = isMaturity && total === 0;
 
+  const strikeColor = getStrikeColor(baseToken.toUpperCase());
+  const strike = (data.strike_price / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const maturity = new Date(data.maturity_time * 1000).toLocaleString();
+  // Title for the market card
+  const title = (
+    <span>
+      {pairName} will reach <span style={{ color: strikeColor, fontWeight: 700 }}>${strike}</span> by {maturity}?
+    </span>
+  );
+
   return (
     <Box
       px={4} py={3}
@@ -191,9 +203,10 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
       <Box position="relative" borderTopRadius="2xl" borderBottomLeftRadius="lg" borderBottomRightRadius="lg" overflow="hidden" h="52%" minH="160px" bg="#23262f">
         <img
           src={imgSrc}
-          alt={data.pair_name}
+          alt={pairName}
           style={{ width: '100%', height: '100%', objectFit: 'cover', borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }}
-          onError={e => { e.currentTarget.src = `/images/${baseToken}-logo.png`; }}
+          // Always fallback to coinbase.png if image not found
+          onError={e => { e.currentTarget.src = '/images/coinbase.png'; }}
         />
         <Badge position="absolute" top={2} left={2} fontSize="xs" px={3} py={1} borderRadius="md" zIndex={2} bg={phaseColor} color="#181A20" fontWeight="bold">
           {phase}
@@ -257,11 +270,17 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
         <Flex align="center" justify="space-between" mt={2} mb={1}>
           <HStack spacing={2} align="center">
             <Box boxSize="18px" borderRadius="full" overflow="hidden" bg="#23262f">
-              <img src={`/images/${baseToken}-logo.png`} alt={baseToken} style={{ width: '100%', height: '100%' }} />
+              <img
+                src={logoSrc}
+                alt={baseToken}
+                style={{ width: '100%', height: '100%' }}
+                // Always fallback to coinbase.png if logo not found
+                onError={e => { (e.target as HTMLImageElement).src = '/images/coinbase.png'; }}
+              />
             </Box>
             <Text color="white" fontWeight="bold" fontSize="sm">
-              {pairPrices[data.pair_name] !== undefined
-                ? `$${pairPrices[data.pair_name].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              {pairPrices[pairName] !== undefined
+                ? `$${pairPrices[pairName].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                 : '--'}
             </Text>
           </HStack>

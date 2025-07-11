@@ -5,41 +5,55 @@ export interface TradingPairInfo {
   priceFeedId?: string;
 }
 
-// Default trading pairs for Aptos
-const DEFAULT_PAIRS: { [key: string]: TradingPairInfo } = {
-  "APT-USD":   { pair: "APT/USD",   symbol: "APTUSDT",   priceFeedId: "0x1::pyth::APT_USD" },
-  "BTC-USD":   { pair: "BTC/USD",   symbol: "BTCUSDT",   priceFeedId: "0x1::pyth::BTC_USD" },
-  "ETH-USD":   { pair: "ETH/USD",   symbol: "ETHUSDT",   priceFeedId: "0x1::pyth::ETH_USD" },
-  "SOL-USD":   { pair: "SOL/USD",   symbol: "SOLUSDT",   priceFeedId: "0x1::pyth::SOL_USD" },
-  "SUI-USD":   { pair: "SUI/USD",   symbol: "SUIUSDT",   priceFeedId: "0x1::pyth::SUI_USD" },
-  "BNB-USD":   { pair: "BNB/USD",   symbol: "BNBUSDT",   priceFeedId: "0x1::pyth::BNB_USD" },
-  "WETH-USD":  { pair: "WETH/USD",  symbol: "WETHUSDT",  priceFeedId: "0x1::pyth::WETH_USD" },
+// Mapping price_feed_id (hex) <-> pair_name
+export const PRICE_FEED_ID_TO_PAIR: Record<string, string> = {
+  "03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5": "APT/USD",
+  "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43": "BTC/USD",
+  "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace": "ETH/USD",
+  "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d": "SOL/USD",
+  "23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744": "SUI/USD",
+  "2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f": "BNB/USD",
+  "9d4294bbcd1174d6f2003ec365831e64cc31d9f6f15a2b85399db8d5000960f6": "WETH/USD",
 };
 
-// Get trading pair info by symbol
-export const getTradingPairInfo = (symbol: string): TradingPairInfo | null => {
-  const normalizedSymbol = symbol.toUpperCase();
-  return DEFAULT_PAIRS[normalizedSymbol] || null;
+export const PAIR_TO_PRICE_FEED_ID: Record<string, string> = {
+  "APT/USD":   "03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5",
+  "BTC/USD":   "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+  "ETH/USD":   "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+  "SOL/USD":   "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
+  "SUI/USD":   "23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744",
+  "BNB/USD":   "2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f",
+  "WETH/USD":  "9d4294bbcd1174d6f2003ec365831e64cc31d9f6f15a2b85399db8d5000960f6",
 };
 
-// Get all available trading pairs
-export const getAvailableTradingPairs = (): TradingPairInfo[] => {
-  return Object.values(DEFAULT_PAIRS);
-};
+export function getPairNameFromPriceFeedId(input: string): string {
+  if (input.includes('/')) return input;
+  return PRICE_FEED_ID_TO_PAIR[input] || '';
+}
 
-// Get trading pair by price feed ID
-export const getTradingPairByPriceFeedId = (priceFeedId: string): TradingPairInfo | null => {
-  const pair = Object.values(DEFAULT_PAIRS).find(p => p.priceFeedId === priceFeedId);
-  return pair || null;
-};
+export function getPriceFeedIdFromPairName(pairName: string): string {
+  return PAIR_TO_PRICE_FEED_ID[pairName] || pairName;
+}
 
 // Format symbol for API calls
 export const formatSymbolForAPI = (symbol: string): string => {
   return symbol.replace('/', '-').toUpperCase();
 };
 
-// Get chart symbol for trading view
-export const getChartSymbol = (symbol: string): string => {
-  const pairInfo = getTradingPairInfo(symbol);
-  return pairInfo?.symbol || 'BTCUSDT';
-}; 
+// Hàm trả về danh sách các cặp trading mặc định
+export function getAvailableTradingPairs(): TradingPairInfo[] {
+  return [
+    { pair: 'APT/USD', symbol: 'APTUSDT', priceFeedId: '03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5' },
+    { pair: 'BTC/USD', symbol: 'BTCUSDT', priceFeedId: 'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43' },
+    { pair: 'ETH/USD', symbol: 'ETHUSDT', priceFeedId: 'ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace' },
+    { pair: 'SOL/USD', symbol: 'SOLUSDT', priceFeedId: 'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d' },
+    { pair: 'SUI/USD', symbol: 'SUIUSDT', priceFeedId: '23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744' },
+    { pair: 'BNB/USD', symbol: 'BNBUSDT', priceFeedId: '2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f' },
+    { pair: 'WETH/USD', symbol: 'WETHUSDT', priceFeedId: '9d4294bbcd1174d6f2003ec365831e64cc31d9f6f15a2b85399db8d5000960f6' },
+  ];
+}
+
+// Hàm lấy thông tin trading pair từ pair name
+export function getTradingPairInfo(pairName: string): TradingPairInfo | undefined {
+  return getAvailableTradingPairs().find(pair => pair.pair === pairName);
+} 

@@ -1,15 +1,15 @@
 import { Aptos, AptosConfig } from '@aptos-labs/ts-sdk';
 
 // Define a type for network configuration for better type safety
-export type AptosNetwork = typeof networkConfig.devnet;
+export type AptosNetwork = typeof networkConfig.mainnet;
 
 // Aptos network configuration
 export const networkConfig = {
-  localnet: {
-    name: 'localnet',
-    nodeUrl: 'http://localhost:8080',
-    faucetUrl: 'http://localhost:8081',
-    chainId: 1337
+  mainnet: {
+    name: 'mainnet',
+    nodeUrl: 'https://fullnode.mainnet.aptoslabs.com/v1',
+    faucetUrl: null,
+    chainId: 1
   },
   devnet: {
     name: 'devnet',
@@ -19,22 +19,17 @@ export const networkConfig = {
   },
   testnet: {
     name: 'testnet', 
-    nodeUrl: 'https://fullnode.testnet.aptoslabs.com',
+    nodeUrl: 'https://fullnode.testnet.aptoslabs.com/v1',
     faucetUrl: 'https://faucet.testnet.aptoslabs.com',
     chainId: 2
   },
-  mainnet: {
-    name: 'mainnet',
-    nodeUrl: 'https://fullnode.mainnet.aptoslabs.com',
-    faucetUrl: null,
-    chainId: 1
-  }
+  
 };
 
 // Get current network based on environment
 export const getCurrentNetwork = () => {
-  const network = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'devnet';
-  return networkConfig[network as keyof typeof networkConfig] || networkConfig.devnet;
+  const network = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'mainnet';
+  return networkConfig[network as keyof typeof networkConfig] || networkConfig.mainnet;
 };
 
 // Get Aptos client instance

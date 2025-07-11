@@ -1,8 +1,9 @@
 // import only what is used
 import { FACTORY_MODULE_ADDRESS } from '@/config/contracts';
-import { DEPLOYED_ADDRESSES } from '../config/contracts';
 import { getAptosClient } from '../config/network';
 import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
+import { getPairNameFromPriceFeedId } from '@/config/tradingPairs';
+import { getStandardPairName } from '@/config/pairMapping';
 
 // Debug: Monkey-patch fetch to log stacktrace when calling /module/factory
 if (typeof window !== 'undefined' && window.fetch) {
@@ -22,6 +23,7 @@ export { InputTransactionData };
 export interface MarketInfo {
     market_address: string;
     owner: string;
+    price_feed_id: string;
     pair_name: string;
     strike_price: string;
     fee_percentage: string;
@@ -112,9 +114,9 @@ export async function estimateDeployMarketGas(
       ]
     };
 
-    // Use a reasonable default gas unit price for Aptos
+    // Use a reasonable default gas unit price for Aptos mainnet
     // In a real app, you'd fetch this from the network
-    const baseGasUnitPrice = 100; // Default gas unit price in octas
+    const baseGasUnitPrice = 100; // Default gas unit price in octas for mainnet
     
     // Apply speed multiplier
     const adjustedGasUnitPrice = Math.floor(baseGasUnitPrice * GAS_SPEED_MULTIPLIERS[gasSpeed]);
@@ -150,9 +152,9 @@ export async function estimateDeployMarketGas(
     const totalFeeOctas = gasUsed * adjustedGasUnitPrice;
     const totalFeeAPT = totalFeeOctas / 1e8; // Convert from octas to APT
 
-    // Estimate USD value (using a rough APT price estimate)
+    // Estimate USD value (using a rough APT price estimate for mainnet)
     // In a real app, you'd fetch current APT price from an API
-    const aptPriceUSD = 8.5; // Rough estimate, should be fetched from price feed
+    const aptPriceUSD = 8.5; // Rough estimate for mainnet, should be fetched from price feed
     const totalFeeUSD = totalFeeAPT * aptPriceUSD;
 
     // Estimate confirmation time based on gas speed
@@ -168,7 +170,7 @@ export async function estimateDeployMarketGas(
   } catch (error) {
     console.error('Error estimating gas:', error);
     
-    // Return fallback estimates
+    // Return fallback estimates for mainnet
     const fallbackGasUsed = 50000;
     const fallbackGasUnitPrice = 100;
     const fallbackFeeAPT = (fallbackGasUsed * fallbackGasUnitPrice) / 1e8;
@@ -321,7 +323,7 @@ export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
 export async function getMarketDetails(marketObjectAddress: string): Promise<MarketInfo | null> {
   try {
     const resourceType = `${FACTORY_MODULE_ADDRESS}::binary_option_market::Market` as `${string}::${string}::${string}`;
-    const baseUrl = 'https://api.devnet.aptoslabs.com/v1/accounts';
+    const baseUrl = 'https://fullnode.mainnet.aptoslabs.com/v1/accounts';
     const url = `${baseUrl}/${marketObjectAddress}/resource/${resourceType}`;
     //console.log('[getMarketDetails] Fetching official API:', url);
     const response = await fetch(url);
@@ -337,7 +339,8 @@ export async function getMarketDetails(marketObjectAddress: string): Promise<Mar
       market_address: marketObjectAddress,
       owner: market.creator || '',
       creator: market.creator || '',
-      pair_name: market.pair_name || '',
+      // Always standardize price_feed_id to pair_name using getStandardPairName
+      pair_name: getStandardPairName(market.price_feed_id || ''),
       strike_price: market.strike_price ? String(market.strike_price) : '0',
       fee_percentage: market.fee_percentage ? String(market.fee_percentage) : '0',
       bidding_start_time: market.bidding_start_time ? String(market.bidding_start_time) : '0',
@@ -354,6 +357,7 @@ export async function getMarketDetails(marketObjectAddress: string): Promise<Mar
       final_price: market.final_price ? String(market.final_price) : '0',
       fee_withdrawn: !!market.fee_withdrawn,
       created_at: market.created_at ? String(market.created_at) : '0',
+      price_feed_id: market.price_feed_id || '',
     };
   } catch (error) {
     console.error('[getMarketDetails] Error:', error, marketObjectAddress);
@@ -374,7 +378,7 @@ export async function bid(
         data: {
             function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::bid`,
             typeArguments: [],
-            functionArguments: [marketAddress, prediction, amountInOctas.toString(), Math.floor(Date.now() / 1000).toString()],
+            functionArguments: [marketAddress, prediction, amountInOctas.toString()],
         }
     };
     const response = await signAndSubmitTransaction(transaction);
@@ -403,20 +407,27 @@ export async function claim(
     throw new Error('Transaction did not return a hash');
 }
 
+/**
+ * Resolve market using off-chain price data (Hermes API approach)
+ * @param signAndSubmitTransaction
+ * @param marketAddress
+ * @param finalPrice - final price from Hermes API
+ * @param result - 0 for long win, 1 for short win
+ */
 export async function resolveMarket(
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
-    marketAddress: string, 
-    finalPrice: number
+    marketAddress: string,
+    finalPrice: number,
+    result: number
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
             function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::resolve_market`,
             typeArguments: [],
-            functionArguments: [marketAddress, finalPrice.toString(), Math.floor(Date.now() / 1000).toString()],
+            functionArguments: [marketAddress, finalPrice.toString(), result.toString()],
         }
     };
     const response = await signAndSubmitTransaction(transaction);
-    // If response is unknown, try to access hash safely
     if (response && typeof response === 'object' && 'hash' in response) {
       return (response as { hash: string }).hash;
     }
@@ -444,7 +455,7 @@ export async function withdrawFee(
 
 // Utility to check if factory module exists before calling view function
 async function checkFactoryModuleExists(address: string): Promise<boolean> {
-  const url = `https://fullnode.devnet.aptoslabs.com/v1/accounts/${address}/module/factory`;
+  const url = `https://fullnode.mainnet.aptoslabs.com/v1/accounts/${address}/module/factory`;
   console.log('[checkFactoryModuleExists] Fetching endpoint:', url);
   try {
     const res = await fetch(url);
@@ -499,30 +510,37 @@ export async function getUserBid(userAddress: string, marketAddress: string): Pr
   console.log('[getUserBid] API raw result:', result);
 
 
-  if (Array.isArray(result) && result.length > 0 && result[0] && typeof result[0] === 'object' && Array.isArray((result[0] as any).result) && (result[0] as any).result.length === 2) {
-    const long = String((result[0] as any).result[0]);
-    const short = String((result[0] as any).result[1]);
-    const hasBid = Number(long) > 0 || Number(short) > 0;
-    console.log('[getUserBid] Parsed (array[0].result):', { long, short, hasBid });
-    return [long, short, hasBid];
-  }
-
-  
-  if (result && typeof result === 'object' && Array.isArray((result as any).result) && (result as any).result.length === 2) {
-    const long = String((result as any).result[0]);
-    const short = String((result as any).result[1]);
-    const hasBid = Number(long) > 0 || Number(short) > 0;
-    console.log('[getUserBid] Parsed (object.result):', { long, short, hasBid });
-    return [long, short, hasBid];
-  }
-
- 
+  // Handle different response formats
   if (Array.isArray(result) && result.length === 2 && (typeof result[0] === 'string' || typeof result[0] === 'number')) {
     const long = String(result[0]);
     const short = String(result[1]);
     const hasBid = Number(long) > 0 || Number(short) > 0;
     console.log('[getUserBid] Parsed (array direct):', { long, short, hasBid });
     return [long, short, hasBid];
+  }
+
+  // Handle wrapped response format
+  if (Array.isArray(result) && result.length > 0 && result[0] && typeof result[0] === 'object') {
+    const firstResult = result[0] as { result?: unknown[] };
+    if (firstResult.result && Array.isArray(firstResult.result) && firstResult.result.length === 2) {
+      const long = String(firstResult.result[0]);
+      const short = String(firstResult.result[1]);
+      const hasBid = Number(long) > 0 || Number(short) > 0;
+      console.log('[getUserBid] Parsed (array[0].result):', { long, short, hasBid });
+      return [long, short, hasBid];
+    }
+  }
+
+  // Handle object with result property
+  if (result && typeof result === 'object' && 'result' in result) {
+    const resultObj = result as { result?: unknown[] };
+    if (resultObj.result && Array.isArray(resultObj.result) && resultObj.result.length === 2) {
+      const long = String(resultObj.result[0]);
+      const short = String(resultObj.result[1]);
+      const hasBid = Number(long) > 0 || Number(short) > 0;
+      console.log('[getUserBid] Parsed (object.result):', { long, short, hasBid });
+      return [long, short, hasBid];
+    }
   }
 
   // fallback

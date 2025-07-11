@@ -138,7 +138,7 @@ const ListAddressOwner: React.FC = () => {
   );
 
   useEffect(() => {
-    const petraNetwork = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'devnet';
+    const petraNetwork = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'mainnet';
       setNetwork(petraNetwork);
   }, []);
 
@@ -207,10 +207,13 @@ const ListAddressOwner: React.FC = () => {
 
   // Filtering logic for tabs
   useEffect(() => {
-    let filtered = markets.filter(m => allowedPairs.includes(m.pair_name));
+    // Log dữ liệu market để debug
+    console.log('markets:', markets);
+    // Bỏ filter allowedPairs để hiển thị tất cả market
+    let filtered = markets;
     if (searchTerm) {
       filtered = filtered.filter(market => 
-        market.pair_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        market.pair_name && market.pair_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         market.creator.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (market._key && market._key.toLowerCase().includes(searchTerm.toLowerCase()))
       );

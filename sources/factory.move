@@ -7,11 +7,11 @@ module yugo::factory {
     use yugo::binary_option_market;
     use aptos_framework::object;
 
-    /// Thông tin chi tiết về contract để frontend truy xuất
+    
     struct MarketInfo has store, copy, drop {
         market_address: address,
         owner: address,
-        pair_name: String,
+        price_feed_id: vector<u8>,
         strike_price: u64,
         fee_percentage: u64,
         bidding_start_time: u64,
@@ -34,7 +34,7 @@ module yugo::factory {
         owner: address,
         market_address: address,
         index: u64,
-        pair_name: String,
+        price_feed_id: vector<u8>,
         strike_price: u64,
         fee_percentage: u64,
         bidding_start_time: u64,
@@ -63,7 +63,7 @@ module yugo::factory {
     /// Deploys a new binary option market contract and emits an event.
     public entry fun deploy_market(
         creator: &signer,
-        pair_name: String,
+        price_feed_id: vector<u8>,
         strike_price: u64,
         fee_percentage: u64,
         bidding_start_time: u64,
@@ -73,15 +73,16 @@ module yugo::factory {
         let creator_address = signer::address_of(creator);
         let factory = borrow_global_mut<Factory>(@yugo);
         assert!(bidding_end_time < maturity_time, 1001); // Custom error code
+        let current_time = aptos_framework::timestamp::now_seconds();
         let market_object = yugo::binary_option_market::initialize(
             creator,
-            pair_name,
+            price_feed_id,
             strike_price,
             fee_percentage,
             bidding_start_time,
             bidding_end_time,
             maturity_time,
-            bidding_start_time // created_at giả lập bằng bidding_start_time
+            current_time // created_at = current timestamp
         );
         let market_address = object::object_address(&market_object);
         // Lưu vào owner_contracts
@@ -93,11 +94,11 @@ module yugo::factory {
             vector::push_back(&mut new_contracts_vec, market_address);
             table::add(&mut factory.owner_contracts, creator_address, new_contracts_vec);
         };
-        // Lưu vào contracts_info
+
         let info = MarketInfo {
             market_address,
             owner: creator_address,
-            pair_name,
+            price_feed_id,
             strike_price,
             fee_percentage,
             bidding_start_time,
@@ -112,7 +113,7 @@ module yugo::factory {
             owner: creator_address,
             market_address,
             index: 0, // index không còn dùng
-            pair_name,
+            price_feed_id,
             strike_price: info.strike_price,
             fee_percentage: info.fee_percentage,
             bidding_start_time: info.bidding_start_time,
@@ -120,9 +121,7 @@ module yugo::factory {
             maturity_time: info.maturity_time,
         });
     }
-
-    /// Trả về danh sách MarketInfo của owner
-    #[view]
+   #[view]
     public fun get_contracts_by_owner(owner: address): vector<MarketInfo> acquires Factory {
         let factory = borrow_global<Factory>(@yugo);
         if (table::contains(&factory.owner_contracts, owner)) {
@@ -154,7 +153,6 @@ module yugo::factory {
         }
     }
 
-    /// Trả về danh sách tất cả MarketInfo của mọi market
     #[view]
     public fun get_all_markets(): vector<MarketInfo> acquires Factory {
         let factory = borrow_global<Factory>(@yugo);

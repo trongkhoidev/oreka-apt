@@ -15,6 +15,7 @@ import type { MarketInfo as MarketInfoType } from '../services/aptosMarketServic
 import ChartDataPrefetchService from '../services/ChartDataPrefetchService';
 import { buildPositionHistoryFromEvents } from '../services/positionHistoryService';
 import PositionRealtimeService from '../services/PositionRealtimeService';
+import { getStandardPairName, getPriceFeedIdFromPairName } from '../config/pairMapping';
 
 enum Side { Long, Short }
 enum Phase { Pending = 0, Bidding = 1, Maturity = 2 }
@@ -24,6 +25,27 @@ interface CustomerProps {
 }
 
 const phaseNames = ['Pending', 'Bidding', 'Maturity'];
+
+// Helper: fetch final price from Hermes API (dùng priceFeedId từ mapping)
+async function fetchFinalPriceFromHermes(pairName: string): Promise<number> {
+  // Lấy priceFeedId chuẩn từ mapping
+  const priceFeedId = getPriceFeedIdFromPairName(pairName);
+  if (!priceFeedId) throw new Error('No priceFeedId found for pair');
+  const url = `https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x${priceFeedId}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to fetch price from Hermes');
+  const data = await res.json();
+  const parsedArr = data.parsed || [];
+  // So sánh id trả về (không có 0x) với id gốc (bỏ 0x)
+  const priceObj = parsedArr.find((p: { id: string; price: { price: number; expo: number } }) => (p.id || '').toLowerCase() === priceFeedId.toLowerCase());
+  if (!priceObj || !priceObj.price || typeof priceObj.price.price === 'undefined' || typeof priceObj.price.expo === 'undefined') {
+    throw new Error('No price found');
+  }
+  const price = Number(priceObj.price.price);
+  const expo = Number(priceObj.price.expo);
+  const realPrice = price * Math.pow(10, expo);
+  return Math.round(realPrice * 1e8); // fixed 8 số lẻ cho contract
+}
 
 const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const { connected, account, signAndSubmitTransaction } = useWallet();
@@ -36,7 +58,6 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const [selectedSide, setSelectedSide] = useState<Side | null>(null);
   const [bidAmount, setBidAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [assetLogo, setAssetLogo] = useState<string>('');
   const [showRules, setShowRules] = useState(false);
   const [userPositions, setUserPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
@@ -83,7 +104,11 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       else if (now < biddingStart) setPhase(Phase.Pending);
       else if (now >= biddingStart && now < biddingEnd) setPhase(Phase.Bidding);
       else setPhase(Phase.Maturity);
-      setAssetLogo(`/images/${details.pair_name.split('/')[0].toLowerCase()}-logo.png`);
+      
+      // Always use getStandardPairName for all pair name conversions
+      const pairName = getStandardPairName(details.pair_name);
+      setAssetLogo(`/images/${pairName.split('/')[0].toLowerCase()}-logo.png`);
+      
       // Fetch user positions
       await fetchUserPositions();
     } catch {
@@ -126,39 +151,34 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   // Fetch asset price
   useEffect(() => {
     if (!market?.pair_name) return;
+    const pairName = getStandardPairName(market.pair_name);
     const allowedPairs = getAvailableTradingPairs().map(p => p.pair);
-    if (!allowedPairs.includes(market.pair_name)) return;
+    if (!allowedPairs.includes(pairName)) return;
     const priceService = PriceService.getInstance();
     const unsub = priceService.subscribeToWebSocketPrices((priceData) => {
-      if (priceData.symbol.replace('-', '/').toUpperCase() === market.pair_name.toUpperCase()) {
-        setCurrentPrice(priceData.price);
+      if (priceData.symbol.replace('-', '/').toUpperCase() === pairName.toUpperCase()) {
+        // setCurrentPrice(priceData.price); // This line was removed
       }
-    }, [market.pair_name]);
+    }, [pairName]);
     return () => { if (unsub) unsub(); };
   }, [market?.pair_name]);
 
   // Prefetch chart data for all intervals as soon as market loads
   useEffect(() => {
     if (market?.pair_name) {
+      const pairName = getStandardPairName(market.pair_name);
       const allowedPairs = getAvailableTradingPairs().map(p => p.pair);
-      if (allowedPairs.includes(market.pair_name)) {
-        ChartDataPrefetchService.getInstance().prefetchAll(market.pair_name);
+      if (allowedPairs.includes(pairName)) {
+        ChartDataPrefetchService.getInstance().prefetchAll(pairName);
       }
     }
   }, [market?.pair_name]);
 
   // Derived values
-  const isOwner = connected && account?.address ? account.address.toString() === (market?.owner || market?.creator) : false;
   const canResolve = phase === Phase.Maturity && !market?.is_resolved;
-  const canClaim = phase === Phase.Maturity;
   const long = market?.long_amount ? Number(market.long_amount) : 0;
   const short = market?.short_amount ? Number(market.short_amount) : 0;
   const total = market?.total_amount ? Number(market.total_amount) : long + short;
-  // Debug log for Total Deposited
-  // if (process.env.NODE_ENV !== 'production') {
-  //   console.log('Total Deposited (raw):', market?.total_amount, 'long:', long, 'short:', short);
-  // }
-  const totalDeposited = market?.total_amount ? (Number(market.total_amount) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
   const longPercentage = total === 0 ? 50 : (long / total) * 100;
   const shortPercentage = total === 0 ? 50 : (short / total) * 100;
   const strike = market?.strike_price ? (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
@@ -223,12 +243,17 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   };
 
   const handleResolve = async () => {
-    if (!signAndSubmitTransaction) return;
+    if (!signAndSubmitTransaction || !market) return;
     setIsSubmitting(true);
     try {
-      // TODO: Khi contract đã tích hợp PriceFeed, chỉ cần gọi resolveMarket mà không truyền giá từ frontend
-      // Hiện tại, truyền 0 vào final_price (contract sẽ cần tự lấy giá on-chain)
-      await resolveMarket(signAndSubmitTransaction, contractAddress, 0);
+      // Lấy giá cuối cùng từ Hermes API (dùng priceFeedId từ mapping)
+      const finalPrice = await fetchFinalPriceFromHermes(market.pair_name);
+      // Tính result theo đúng logic contract
+      const strike = Number(market.strike_price);
+      let result = 2;
+      if (finalPrice >= strike) result = 0; // LONG win
+      else result = 1; // SHORT win
+      await resolveMarket(signAndSubmitTransaction, contractAddress, finalPrice, result);
       toast({ title: 'Market resolve transaction submitted', status: 'success' });
       fetchMarketData();
     } catch (error: unknown) {
@@ -272,10 +297,10 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
         {/* Market Info */}
         <MarketInfo
           assetLogo={assetLogo}
-          pairName={market.pair_name || ''}
+          pairName={getStandardPairName(market.pair_name) || ''}
           strike={strike}
           maturity={maturity}
-          pool={totalDeposited}
+          pool={market?.total_amount ? (Number(market.total_amount) / 1e8).toString() : '--'}
           fee={fee}
           phase={phase}
           phaseNames={phaseNames}
@@ -346,7 +371,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 <TabPanel p={0} pt={2}>
                   <Box position="relative" width="100%">
                     <MarketCharts
-                      chartSymbol={market.pair_name || market?.pair_name}
+                      chartSymbol={getStandardPairName(market.pair_name) || market?.pair_name}
                       strikePrice={market?.strike_price ? Number(market.strike_price) / 1e8 : Number(market?.strike_price || 0)}
                       chartType="position"
                       data={positionHistory}
@@ -361,7 +386,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 <TabPanel p={0} pt={2}>
                   <Box position="relative" width="100%">
                     <MarketCharts
-                      chartSymbol={market.pair_name || market?.pair_name}
+                      chartSymbol={getStandardPairName(market.pair_name) || market?.pair_name}
                       strikePrice={market?.strike_price ? Number(market.strike_price) / 1e8 : Number(market?.strike_price || 0)}
                       chartType="price"
                       height={CHART_HEIGHT}
@@ -408,14 +433,13 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                   <HStack fontSize="20px">
                     <Text color="gray.400">Final Price:</Text>
                     <Text fontWeight="bold" color={String(market?.result) === '0' ? 'green' : 'red'}>
-                      {Number(market.final_price) / 1e8}
+                      {(Number(market.final_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                     </Text>
                     <Text fontWeight="bold" color="#FEDF56">USD</Text>
                   </HStack>
                 </Flex>
               )}
 
-              {/* Chỉ hiển thị nút Claim Rewards cho address thắng và phase Maturity */}
               {phase === Phase.Maturity && market?.is_resolved && isWinner && (
                 <Button
                   onClick={handleClaim}

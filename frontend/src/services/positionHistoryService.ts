@@ -28,7 +28,7 @@ const GRAPHQL_ENDPOINT = process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT || 'https://yo
 export async function getMarketBidEvents(marketAddress: string): Promise<BidEvent[]> {
   // Use module event API: /v1/events/by_event_type/{event_type}
   const eventType = `${FACTORY_MODULE_ADDRESS}::binary_option_market::BidEvent`;
-  const eventsUrl = `https://fullnode.devnet.aptoslabs.com/v1/events/by_event_type/${eventType}`;
+  const eventsUrl = `https://fullnode.mainnet.aptoslabs.com/v1/events/by_event_type/${eventType}`;
   try {
     const eventsRes = await fetch(eventsUrl);
     if (!eventsRes.ok) {
