@@ -95,7 +95,7 @@ export class SearchService {
         });
       marketResults = marketWithFields
         .filter((item) => {
-          // Chuẩn hóa keyword và so khớp với title đã chuẩn hóa
+          
           const normKeyword = (keyword: string) => keyword.toLowerCase().replace(/[^a-z0-9$./: ]/gi, '').replace(/\s+/g, ' ').trim();
           const searchKey = normKeyword(lower);
           return item._searchTitle.includes(searchKey);
@@ -108,7 +108,7 @@ export class SearchService {
           cardTitle,
           strike: _searchFields[1],
           maturity: _searchFields[2],
-          imgSrc, // hình ảnh duy nhất cho contract
+          imgSrc, 
         }));
     } catch {}
     // Search news
