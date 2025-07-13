@@ -74,4 +74,4 @@ build/
 .aptos/node_modules/
 .next/
 build/
-.cursor
+.cursor/rules
