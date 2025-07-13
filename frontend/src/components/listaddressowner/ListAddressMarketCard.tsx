@@ -33,6 +33,7 @@ interface ListAddressMarketCardProps {
   getMarketPhase: (market: Market) => string;
   getPhaseColor: (phase: string) => string;
   getStableIndex: (key: string, max: number) => number;
+  forceRefresh?: number | boolean; // Thêm prop này để trigger refetch khi cần
 }
 
 // Thêm hàm chọn màu theo coin
@@ -41,7 +42,7 @@ function getStrikeColor(token: string) {
     case 'BTC': return '#FFD700'; 
     case 'ETH': return '#4F8CFF'; 
     case 'SOL': return '#A259FF'; 
-    case 'APT': return '#f2a16'; 
+    case 'APT': return '#3EEBB4'; 
     case 'SUI': return '#00E1D6'; 
     case 'BNB': return '#F3BA2F'; 
     case 'LINK': return '#2A5ADA'; 
@@ -49,16 +50,22 @@ function getStrikeColor(token: string) {
   }
 }
 
+const POLL_INTERVAL = 15000; // 15s
+
 const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
-  market, onClick, pairPrices, getMarketPhase, getPhaseColor, getStableIndex
+  market, onClick, pairPrices, getMarketPhase, getPhaseColor, getStableIndex, forceRefresh
 }) => {
   const [details, setDetails] = useState<Market | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Polling market detail mỗi 15s khi tab active
   useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    let stopped = false;
     async function fetchRealtimeDetails() {
       setLoading(true);
       const d = await getMarketDetails(market.market_address);
+      if (stopped) return;
       if (d) {
         setDetails({
           ...market,
@@ -85,7 +92,13 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
       setLoading(false);
     }
     fetchRealtimeDetails();
-  }, [market.market_address]);
+    function poll() {
+      if (document.visibilityState === 'visible') fetchRealtimeDetails();
+      interval = setTimeout(poll, POLL_INTERVAL);
+    }
+    interval = setTimeout(poll, POLL_INTERVAL);
+    return () => { stopped = true; if (interval) clearTimeout(interval); };
+  }, [market.market_address, forceRefresh]);
 
   // Lấy dữ liệu ưu tiên từ details realtime, fallback sang props market
   const data = details || market;
@@ -102,17 +115,13 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
   const phase = getMarketPhase(data);
   const phaseColor = getPhaseColor(phase);
   
-  // pairName đã được chuẩn hóa từ backend, chỉ cần lấy baseToken
   const pairName = data.pair_name;
   let baseToken = '';
   if (pairName && pairName.includes('/')) {
     baseToken = pairName.split('/')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
   }
-  // Ảnh chính: lấy từ thư mục con (ví dụ: /images/apt/apt1.png)
   const imgIndex = getStableIndex(data._key || pairName, 10);
   const imgSrc = baseToken ? `/images/${baseToken}/${baseToken}${imgIndex}.png` : '/images/coinbase.png';
-  // Ảnh nhỏ (icon): lấy từ {baseToken}-logo.png
-  const logoSrc = baseToken ? `/images/${baseToken}-logo.png` : '/images/coinbase.png';
   const now = Math.floor(Date.now() / 1000);
   let biddingStatus = null;
   let biddingColor = '#4F8CFF';
@@ -252,32 +261,32 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
           {/* --- Chỉ hiển thị bar phần trăm khi chưa resolved và còn bid --- */}
           {((phase === 'Pending' || phase === 'Bidding') || (phase === 'Maturity' && !data.is_resolved && total > 0)) && (
             <>
-              {longPercent > 8 && (
-                <Text color="#5FDCC6" fontWeight="bold" minW="36px" fontSize="sm" textAlign="right">{longPercent.toFixed(0)}%</Text>
-              )}
+              <Text color="#5FDCC6" fontWeight="bold" minW="36px" fontSize="sm" textAlign="right">{longPercent.toFixed(0)}%</Text>
               <Box flex={1} alignItems="center" w="100%" h="18px" borderRadius="full" bg="gray.800" position="relative" overflow="hidden" mb={1} p={0}
                 boxShadow="0 0 4px #f9f9f7, 0 0 2px  #ff3a7a77, inset 0 1px rgba(0,0,0,0.6)">
-                <Box position="absolute" width={`${longPercent}%`} bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" transition="width 0.6s ease" h="100%" display="flex" alignItems="center" justifyContent="flex-end" pr={3} left="0" top="0" zIndex={1} />
-                <Box position="absolute" right="0" top="0" h="100%" width={`${shortPercent}%`} bgGradient="linear(to-r, #FF6B81, #D5006D)" transition="width 0.6s ease" display="flex" alignItems="center" justifyContent="flex-start" pl={3} zIndex={0} />
+                {/* Nếu 100% long */}
+                {longPercent === 100 && (
+                  <Box position="absolute" width={`100%`} bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" transition="width 0.6s ease" h="100%" left="0" top="0" zIndex={1} />
+                )}
+                {/* Nếu 100% short */}
+                {shortPercent === 100 && (
+                  <Box position="absolute" width={`100%`} bgGradient="linear(to-r, #FF6B81, #D5006D)" transition="width 0.6s ease" h="100%" left="0" top="0" zIndex={1} />
+                )}
+                {/* Nếu không phải 100% */}
+                {longPercent > 0 && longPercent < 100 && (
+                  <Box position="absolute" width={`${longPercent}%`} bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" transition="width 0.6s ease" h="100%" left="0" top="0" zIndex={1} />
+                )}
+                {shortPercent > 0 && shortPercent < 100 && (
+                  <Box position="absolute" right="0" top="0" h="100%" width={`${shortPercent}%`} bgGradient="linear(to-r, #FF6B81, #D5006D)" transition="width 0.6s ease" zIndex={0} />
+                )}
               </Box>
-              {shortPercent > 8 && (
-                <Text color="#ED5FA7" fontWeight="bold" minW="36px" fontSize="sm" textAlign="left">{shortPercent.toFixed(0)}%</Text>
-              )}
+              <Text color="#ED5FA7" fontWeight="bold" minW="36px" fontSize="sm" textAlign="left">{shortPercent.toFixed(0)}%</Text>
             </>
           )}
         </HStack>
         {/* Asset price + Total deposited + Bidding time */}
         <Flex align="center" justify="space-between" mt={2} mb={1}>
           <HStack spacing={2} align="center">
-            <Box boxSize="18px" borderRadius="full" overflow="hidden" bg="#23262f">
-              <img
-                src={logoSrc}
-                alt={baseToken}
-                style={{ width: '100%', height: '100%' }}
-                // Always fallback to coinbase.png if logo not found
-                onError={e => { (e.target as HTMLImageElement).src = '/images/coinbase.png'; }}
-              />
-            </Box>
             <Text color="white" fontWeight="bold" fontSize="sm">
               {pairPrices[pairName] !== undefined
                 ? `$${pairPrices[pairName].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -294,5 +303,22 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
     </Box>
   );
 };
+
+// Helper: build title giống như trên card
+export function getMarketCardTitle(market: Market): string {
+  const pairName = getStandardPairName(market.pair_name || '') || '';
+  const strike = (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const maturity = market.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
+  return `${pairName} will reach $${strike} by ${maturity}?`;
+}
+// Helper: build logo src giống như trên card
+export function getMarketLogoSrc(market: Market): string {
+  const pairName = getStandardPairName(market.pair_name || '') || '';
+  let baseToken = '';
+  if (pairName && pairName.includes('/')) {
+    baseToken = pairName.split('/')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  }
+  return baseToken ? `/images/${baseToken}-logo.png` : '/images/coinbase.png';
+}
 
 export default ListAddressMarketCard; 

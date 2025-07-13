@@ -1,25 +1,49 @@
 module yugo::binary_option_market {
-    friend yugo::factory;
-
     use std::signer;
     use std::string::String;
     use std::table;
+    use std::vector;
     use aptos_framework::object;
     use aptos_framework::object::Object;
-    use aptos_framework::event;
     use aptos_framework::coin::{Self, Coin};
     use aptos_framework::aptos_coin::AptosCoin;
-    use pyth::pyth;
-    use pyth::price::Price;
-    use pyth::price_identifier;
     use std::string;
     use aptos_framework::timestamp;
-    use yugo::pyth_price_adapter;
+    use aptos_framework::event::{Self, EventHandle};
+    use aptos_framework::account;
 
     /// The bid placed by a user.
     struct Bid has store, copy, drop {
         long_amount: u64,
         short_amount: u64,
+    }
+
+    /// Market information for listing
+    struct MarketInfo has store, copy, drop {
+        market_address: address,
+        owner: address,
+        price_feed_id: vector<u8>,
+        strike_price: u64,
+        fee_percentage: u64,
+        bidding_start_time: u64,
+        bidding_end_time: u64,
+        maturity_time: u64,
+    }
+
+    /// Global market registry - stores all market instances
+    struct MarketRegistry has key {
+        /// All market addresses
+        all_markets: vector<address>,
+        /// Market info by address
+        market_info: table::Table<address, MarketInfo>,
+        /// Markets by owner
+        owner_markets: table::Table<address, vector<address>>,
+        /// Event handles for emitting events
+        market_created_events: EventHandle<MarketCreatedEvent>,
+        bid_events: EventHandle<BidEvent>,
+        resolve_events: EventHandle<ResolveEvent>,
+        claim_events: EventHandle<ClaimEvent>,
+        withdraw_fee_events: EventHandle<WithdrawFeeEvent>,
     }
 
     /// A resource that represents a binary option market.
@@ -69,38 +93,44 @@ module yugo::binary_option_market {
 
     // Event definitions
     #[event]
-    struct BidEvent has drop, store {
-        user: address,
-        prediction: bool,
-        amount: u64,
-        market_address: address,
-    }
-    #[event]
-    struct ResolveEvent has drop, store {
-        resolver: address,
-        final_price: u64,
-        result: u8,
-    }
-    #[event]
-    struct ClaimEvent has drop, store {
-        user: address,
-        amount: u64,
-        won: bool,
-    }
-    #[event]
-    struct WithdrawFeeEvent has drop, store {
-        owner: address,
-        amount: u64,
-    }
-    #[event]
-    struct InitializeEvent has drop, store {
+    struct MarketCreatedEvent has drop, store {
         creator: address,
+        market_address: address,
         price_feed_id: String,
         strike_price: u64,
         fee_percentage: u64,
         bidding_start_time: u64,
         bidding_end_time: u64,
         maturity_time: u64,
+    }
+
+    #[event]
+    struct BidEvent has drop, store {
+        user: address,
+        prediction: bool,
+        amount: u64,
+        market_address: address,
+        timestamp_bid: u64,
+    }
+
+    #[event]
+    struct ResolveEvent has drop, store {
+        resolver: address,
+        final_price: u64,
+        result: u8,
+    }
+
+    #[event]
+    struct ClaimEvent has drop, store {
+        user: address,
+        amount: u64,
+        won: bool,
+    }
+
+    #[event]
+    struct WithdrawFeeEvent has drop, store {
+        owner: address,
+        amount: u64,
     }
 
     // === Errors ===
@@ -111,27 +141,46 @@ module yugo::binary_option_market {
     const ENO_BID_FOUND: u64 = 106;
     const EALREADY_CLAIMED: u64 = 108;
     const EINSUFFICIENT_AMOUNT: u64 = 109;
+    const EMARKET_REGISTRY_NOT_INITIALIZED: u64 = 110;
 
     const PHASE_PENDING: u8 = 0;
     const PHASE_BIDDING: u8 = 1;
     const PHASE_MATURITY: u8 = 2;
 
-    /// Initializes a new binary option market as an Object.
-    /// This function is intended to be called by the `factory` module.
-    public fun initialize(
+    /// Initialize the global market registry - called once by module publisher
+    public entry fun initialize_market_registry(account: &signer) {
+        move_to(account, MarketRegistry {
+            all_markets: vector::empty<address>(),
+            market_info: table::new(),
+            owner_markets: table::new(),
+            market_created_events: account::new_event_handle<MarketCreatedEvent>(account),
+            bid_events: account::new_event_handle<BidEvent>(account),
+            resolve_events: account::new_event_handle<ResolveEvent>(account),
+            claim_events: account::new_event_handle<ClaimEvent>(account),
+            withdraw_fee_events: account::new_event_handle<WithdrawFeeEvent>(account),
+        });
+    }
+
+    /// Create a new binary option market
+    public entry fun create_market(
         creator: &signer,
         price_feed_id: vector<u8>,
         strike_price: u64,
         fee_percentage: u64,
         bidding_start_time: u64,
         bidding_end_time: u64,
-        maturity_time: u64,
-        created_at: u64,
-    ): Object<Market> {
-        assert!(bidding_end_time < maturity_time, 1001); // Custom error code
+        maturity_time: u64
+    ) acquires MarketRegistry {
+        assert!(bidding_end_time < maturity_time, 1001);
+        let current_time = timestamp::now_seconds();
+        
+        // Create market object
+        let constructor_ref = object::create_object(signer::address_of(creator));
+        let object_signer = object::generate_signer(&constructor_ref);
+        
         let market = Market {
             creator: signer::address_of(creator),
-            price_feed_id: price_feed_id,
+            price_feed_id,
             strike_price,
             fee_percentage,
             total_bids: 0,
@@ -146,17 +195,48 @@ module yugo::binary_option_market {
             bidding_start_time,
             bidding_end_time,
             maturity_time,
-            created_at,
+            created_at: current_time,
             final_price: 0,
             fee_withdrawn: false,
             coin_vault: coin::zero<AptosCoin>(),
             claimed_users: table::new(),
         };
-        let constructor_ref = object::create_object(signer::address_of(creator));
-        let object_signer = object::generate_signer(&constructor_ref);
+        
         move_to(&object_signer, market);
-        event::emit(InitializeEvent {
+        
+        let market_obj = object::object_from_constructor_ref<Market>(&constructor_ref);
+        let market_address = object::object_address(&market_obj);
+        
+        // Add to market registry
+        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        vector::push_back(&mut registry.all_markets, market_address);
+        
+        let info = MarketInfo {
+            market_address,
+            owner: signer::address_of(creator),
+            price_feed_id,
+            strike_price,
+            fee_percentage,
+            bidding_start_time,
+            bidding_end_time,
+            maturity_time,
+        };
+        table::add(&mut registry.market_info, market_address, info);
+        
+        // Add to owner's markets
+        if (table::contains(&registry.owner_markets, signer::address_of(creator))) {
+            let owner_markets = table::borrow_mut(&mut registry.owner_markets, signer::address_of(creator));
+            vector::push_back(owner_markets, market_address);
+        } else {
+            let new_owner_markets = vector::empty<address>();
+            vector::push_back(&mut new_owner_markets, market_address);
+            table::add(&mut registry.owner_markets, signer::address_of(creator), new_owner_markets);
+        };
+
+        // Emit MarketCreatedEvent
+        event::emit_event(&mut registry.market_created_events, MarketCreatedEvent {
             creator: signer::address_of(creator),
+            market_address,
             price_feed_id: string::utf8(price_feed_id),
             strike_price,
             fee_percentage,
@@ -164,7 +244,8 @@ module yugo::binary_option_market {
             bidding_end_time,
             maturity_time,
         });
-        object::object_from_constructor_ref<Market>(&constructor_ref)
+
+
     }
 
     /// Get the current phase of the market.
@@ -182,22 +263,26 @@ module yugo::binary_option_market {
     }
 
     /// Allows a user to place a bid on a market.
-    public entry fun bid(owner: &signer, market_addr: address, prediction: bool, amount: u64) acquires Market {
+    public entry fun bid(owner: &signer, market_addr: address, prediction: bool, amount: u64, timestamp_bid: u64) acquires Market, MarketRegistry {
         let market = borrow_global_mut<Market>(market_addr);
+        
         let now = timestamp::now_seconds();
         assert!(!market.is_resolved, EMARKET_RESOLVED);
         assert!(now >= market.bidding_start_time && now < market.bidding_end_time, ENOT_IN_BIDDING_PHASE);
         assert!(amount > 0, EINSUFFICIENT_AMOUNT);
+        
         let bidder_address = signer::address_of(owner);
         // Transfer coins from user to market vault
         let coins = coin::withdraw<AptosCoin>(owner, amount);
         coin::merge(&mut market.coin_vault, coins);
+        
         let user_bid;
         if (table::contains(&market.bids, bidder_address)) {
             user_bid = table::remove(&mut market.bids, bidder_address);
         } else {
             user_bid = Bid { long_amount: 0, short_amount: 0 };
         };
+        
         let new_user_bid = if (prediction) {
             market.long_bids = market.long_bids + 1;
             market.long_amount = market.long_amount + amount;
@@ -213,30 +298,33 @@ module yugo::binary_option_market {
                 short_amount: user_bid.short_amount + amount
             }
         };
+        
         market.total_bids = market.total_bids + 1;
         market.total_amount = market.total_amount + amount;
         table::add(&mut market.bids, bidder_address, new_user_bid);
-        event::emit(BidEvent {
+
+        // Emit BidEvent
+        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        event::emit_event(&mut registry.bid_events, BidEvent {
             user: bidder_address,
             prediction,
             amount,
             market_address: market_addr,
+            timestamp_bid,
         });
+
+
     }
 
     /// Resolves the market using Pyth oracle. Can be called by anyone after maturity_time, only once.
-    /// Frontend/backend sẽ:
-    /// 1. Gọi Hermes API: https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x{price_feed_id}
-    /// 2. Lấy giá từ response JSON
-    /// 3. Tính toán result (0: long win, 1: short win)
-    /// 4. Gọi hàm này với final_price và result
     public entry fun resolve_market(
         caller: &signer, 
         market_addr: address, 
         final_price: u64, 
         result: u8
-    ) acquires Market {
+    ) acquires Market, MarketRegistry {
         let market = borrow_global_mut<Market>(market_addr);
+        
         let now = timestamp::now_seconds();
         assert!(!market.is_resolved, EMARKET_RESOLVED);
         assert!(now >= market.maturity_time, EMARKET_NOT_RESOLVED);
@@ -247,18 +335,22 @@ module yugo::binary_option_market {
         market.is_resolved = true;
         market.final_price = final_price;
         market.result = result;
-        
-        // Emit resolve event
-        event::emit(ResolveEvent {
+
+        // Emit ResolveEvent
+        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        event::emit_event(&mut registry.resolve_events, ResolveEvent {
             resolver: signer::address_of(caller),
-            final_price: final_price,
-            result: result,
+            final_price,
+            result,
         });
+
+
     }
 
     /// Allows a user to claim their winnings or refund.
-    public entry fun claim(owner: &signer, market_addr: address) acquires Market {
+    public entry fun claim(owner: &signer, market_addr: address) acquires Market, MarketRegistry {
         let market = borrow_global_mut<Market>(market_addr);
+        
         let now = timestamp::now_seconds();
         assert!(market.is_resolved, EMARKET_NOT_RESOLVED);
         let bidder_address = signer::address_of(owner);
@@ -302,32 +394,41 @@ module yugo::binary_option_market {
         // Mark user as claimed
         table::add(&mut market.claimed_users, bidder_address, true);
 
-        event::emit(ClaimEvent {
+        // Emit ClaimEvent
+        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        event::emit_event(&mut registry.claim_events, ClaimEvent {
             user: bidder_address,
             amount: claim_amount,
             won,
         });
+
+
     }
 
     /// Allows the owner to withdraw the fee after the market is resolved.
-    public entry fun withdraw_fee(owner: &signer, market_obj: Object<Market>) acquires Market {
+    public entry fun withdraw_fee(owner: &signer, market_obj: Object<Market>) acquires Market, MarketRegistry {
         let market_address = object::object_address(&market_obj);
         let market = borrow_global_mut<Market>(market_address);
+        
         let now = timestamp::now_seconds();
         assert!(market.creator == signer::address_of(owner), ENOT_OWNER);
         assert!(market.is_resolved, EMARKET_NOT_RESOLVED);
         assert!(!market.fee_withdrawn, EALREADY_CLAIMED);
-        // Move Table không có hàm length, cần kiểm tra empty bằng cách lưu vector keys hoặc logic khác
-        // Tạm thời bỏ qua kiểm tra này hoặc tự implement nếu cần
+        
         let fee = (market.fee_percentage * market.total_amount) / 1000; // fee_percentage is per-mille (e.g. 100 = 10%)
         // Transfer fee coins from market vault to owner
         let payout = coin::extract(&mut market.coin_vault, fee);
         coin::deposit(signer::address_of(owner), payout);
         market.fee_withdrawn = true;
-        event::emit(WithdrawFeeEvent {
+
+        // Emit WithdrawFeeEvent
+        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        event::emit_event(&mut registry.withdraw_fee_events, WithdrawFeeEvent {
             owner: signer::address_of(owner),
             amount: fee,
         });
+
+
     }
 
     // === View Functions ===
@@ -382,6 +483,63 @@ module yugo::binary_option_market {
             (user_bid.long_amount, user_bid.short_amount)
         } else {
             (0, 0)
+        }
+    }
+
+
+
+    // === Market Registry View Functions ===
+
+    /// Get all markets
+    #[view]
+    public fun get_all_markets(): vector<MarketInfo> acquires MarketRegistry {
+        let registry = borrow_global<MarketRegistry>(@yugo);
+        let infos = vector::empty<MarketInfo>();
+        let addresses = &registry.all_markets;
+        let len = vector::length(addresses);
+        let i = 0;
+        while (i < len) {
+            let addr = *vector::borrow(addresses, i);
+            if (table::contains(&registry.market_info, addr)) {
+                let info = table::borrow(&registry.market_info, addr);
+                vector::push_back(&mut infos, *info);
+            };
+            i = i + 1;
+        };
+        infos
+    }
+
+    /// Get markets by owner
+    #[view]
+    public fun get_markets_by_owner(owner: address): vector<MarketInfo> acquires MarketRegistry {
+        let registry = borrow_global<MarketRegistry>(@yugo);
+        if (table::contains(&registry.owner_markets, owner)) {
+            let addresses = table::borrow(&registry.owner_markets, owner);
+            let infos = vector::empty<MarketInfo>();
+            let len = vector::length(addresses);
+            let i = 0;
+            while (i < len) {
+                let addr = *vector::borrow(addresses, i);
+                if (table::contains(&registry.market_info, addr)) {
+                    let info = table::borrow(&registry.market_info, addr);
+                    vector::push_back(&mut infos, *info);
+                };
+                i = i + 1;
+            };
+            infos
+        } else {
+            vector::empty<MarketInfo>()
+        }
+    }
+
+    /// Get owner's market count
+    #[view]
+    public fun get_owner_market_count(owner: address): u64 acquires MarketRegistry {
+        let registry = borrow_global<MarketRegistry>(@yugo);
+        if (table::contains(&registry.owner_markets, owner)) {
+            vector::length(table::borrow(&registry.owner_markets, owner))
+        } else {
+            0
         }
     }
 }

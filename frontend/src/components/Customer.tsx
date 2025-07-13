@@ -6,15 +6,14 @@ import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { bid, claim, resolveMarket, getMarketDetails, getUserBid, withdrawFee } from '../services/aptosMarketService';
 import MarketCharts from './charts/MarketCharts';
 import { PriceService } from '../services/PriceService';
-import { getAvailableTradingPairs } from '../config/tradingPairs';
+import { getAvailableTradingPairs, getTradingPairInfo } from '../config/tradingPairs';
 import MarketInfo from './customer/MarketInfo';
 import MarketTimeline from './customer/MarketTimeline';
 import MarketBetPanel from './customer/MarketBetPanel';
 import MarketRules from './customer/MarketRules';
 import type { MarketInfo as MarketInfoType } from '../services/aptosMarketService';
 import ChartDataPrefetchService from '../services/ChartDataPrefetchService';
-import { buildPositionHistoryFromEvents } from '../services/positionHistoryService';
-import PositionRealtimeService from '../services/PositionRealtimeService';
+import { getMarketBidEvents, buildPositionTimeline } from '../services/positionHistoryService';
 import { getStandardPairName, getPriceFeedIdFromPairName } from '../config/pairMapping';
 import EventListenerService from '../services/EventListenerService';
 
@@ -56,7 +55,7 @@ const formatClaimAmount = (amount: number) => {
   // Nếu là số nguyên hoặc chỉ có 2 số lẻ, hiển thị 2
   if (Number.isInteger(apt * 100)) return apt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   // Nếu có 4 số lẻ, hiển thị 4
-  if (Number.isInteger(apt * 10000)) return apt.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  if (Number(apt * 10000) === 0) return apt.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
   // Nếu có nhiều số lẻ hơn, hiển thị 6
   return apt.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 6 });
 };
@@ -76,10 +75,19 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const [showRules, setShowRules] = useState(false);
   const [userPositions, setUserPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
   const [positionHistory, setPositionHistory] = useState<{ time: number; long: number; short: number }[]>([]);
+  const [loadingChart, setLoadingChart] = useState(true);
+  const [refreshChart, setRefreshChart] = useState(0);
 
-  // Fetch user positions
+  // Thêm state currentTime để realtime chart
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch user positions - remove dependency on fetchMarketData
   const fetchUserPositions = useCallback(async () => {
-    if (connected && account?.address) {
+    if (connected && account?.address && contractAddress) {
       try {
         const [long, short, hasBid] = await getUserBid(account.address.toString(), contractAddress);
         console.log('getUserBid:', { long, short, hasBid, account: account.address.toString(), contractAddress });
@@ -97,7 +105,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
   }, [connected, account, contractAddress]);
 
-  // Fetch market data and update state
+  // Fetch market data and update state - remove fetchUserPositions dependency
   const fetchMarketData = useCallback(async () => {
     if (!contractAddress) return;
     setIsLoading(true);
@@ -122,44 +130,49 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       // Always use getStandardPairName for all pair name conversions
       const pairName = getStandardPairName(details.pair_name);
       setAssetLogo(`/images/${pairName.split('/')[0].toLowerCase()}-logo.png`);
-      
-      // Fetch user positions
-      await fetchUserPositions();
-    } catch {
+    } catch (error) {
+      console.error('fetchMarketData error:', error);
       toast({ title: 'Error', description: 'Could not fetch market data', status: 'error' });
     } finally {
       setIsLoading(false);
     }
-  }, [contractAddress, toast, fetchUserPositions]);
+  }, [contractAddress, toast]);
 
-  // Fetch position history for the market
+  // Fetch position history for the market - build from BidEvents
   useEffect(() => {
     if (!contractAddress) return;
     let isMounted = true;
     const fetchPositionHistory = async () => {
-      // Use realtime service for position history
-      const realtimeService = PositionRealtimeService.getInstance();
-      const history = realtimeService.getPositionHistory(contractAddress, 'all');
-      
-      if (isMounted && history.length > 0) {
-        // Convert to old format for backward compatibility
-        const convertedHistory = history.map(h => ({
-          time: h.time,
-          long: h.long,
-          short: h.short
-        }));
-        setPositionHistory(convertedHistory);
-      } else {
-        // Fallback to old method if no realtime data
-        const history = await buildPositionHistoryFromEvents(contractAddress);
-        if (isMounted) setPositionHistory(history);
+      setLoadingChart(true);
+      try {
+        // Fetch all BidEvents from API
+        const bidEvents = await getMarketBidEvents(contractAddress);
+        // Lấy thời gian biddingStartTime và biddingEndTime từ market
+        const market = await getMarketDetails(contractAddress);
+        const biddingStartTime = market?.bidding_start_time ? Number(market.bidding_start_time) * 1000 : undefined;
+        const biddingEndTime = market?.bidding_end_time ? Number(market.bidding_end_time) * 1000 : undefined;
+        if (biddingStartTime && biddingEndTime) {
+          const timeline = buildPositionTimeline(
+            bidEvents,
+            biddingStartTime,
+            biddingEndTime,
+            Date.now()
+          );
+          if (isMounted) setPositionHistory(timeline);
+        } else {
+          if (isMounted) setPositionHistory([]);
+        }
+      } catch (error) {
+        if (isMounted) setPositionHistory([]);
+      } finally {
+        setLoadingChart(false);
       }
     };
     fetchPositionHistory();
     return () => { isMounted = false; };
-  }, [contractAddress, phase]);
+  }, [contractAddress, phase, refreshChart]);
 
-  // Fetch user bid on mount and when contractAddress changes
+  // Fetch user bid on mount and when contractAddress changes - separate from fetchMarketData
   useEffect(() => {
     if (!contractAddress || !account?.address) return;
     fetchUserPositions(); // initial fetch
@@ -173,7 +186,16 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   }, [contractAddress, account?.address, fetchUserPositions]);
 
   // Fetch market data on mount and when contractAddress changes
-  useEffect(() => { fetchMarketData(); }, [fetchMarketData]);
+  useEffect(() => { 
+    fetchMarketData(); 
+  }, [fetchMarketData]);
+
+  // Fetch user positions after market data is loaded
+  useEffect(() => {
+    if (market && connected && account?.address) {
+      fetchUserPositions();
+    }
+  }, [market, connected, account, fetchUserPositions]);
 
   // Fetch asset price
   useEffect(() => {
@@ -208,6 +230,8 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const total = market?.total_amount ? Number(market.total_amount) : long + short;
   const longPercentage = total === 0 ? 50 : (long / total) * 100;
   const shortPercentage = total === 0 ? 50 : (short / total) * 100;
+  const pairName = market?.pair_name ? getStandardPairName(market.pair_name) : '';
+  const pairInfo = pairName ? getTradingPairInfo(pairName) : undefined;
   const strike = market?.strike_price ? (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
   const maturity = market?.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
   const fee = market?.fee_percentage ? (Number(market.fee_percentage) / 10).toFixed(1) : '--';
@@ -259,28 +283,21 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   // Handlers
   const handleBid = async () => {
     if (selectedSide === null || !bidAmount || !signAndSubmitTransaction) return;
+    if (!connected || !account?.address) {
+      toast({ title: 'Please connect your wallet to perform this action.', status: 'warning' });
+      return;
+    }
     setIsSubmitting(true);
     try {
-      await bid(signAndSubmitTransaction, contractAddress, selectedSide === Side.Long, parseFloat(bidAmount));
+      const timestampBid = Math.floor(Date.now() / 1000);
+      await bid(signAndSubmitTransaction, contractAddress, selectedSide === Side.Long, parseFloat(bidAmount), timestampBid);
       toast({ title: 'Bid submitted', status: 'success' });
       setBidAmount('');
-      // Chỉ cập nhật lại market, userPositions, positionHistory thay vì reload toàn bộ
-      // 1. Update market
+      // Update market, userPositions, and chart
       const details = await getMarketDetails(contractAddress);
       setMarket(details);
-      // 2. Update userPositions
       await fetchUserPositions();
-      // 3. Update positionHistory (realtime)
-      const realtimeService = PositionRealtimeService.getInstance();
-      const history = realtimeService.getPositionHistory(contractAddress, 'all');
-      if (history.length > 0) {
-        const convertedHistory = history.map(h => ({
-          time: h.time,
-          long: h.long,
-          short: h.short
-        }));
-        setPositionHistory(convertedHistory);
-      }
+      setRefreshChart(c => c + 1); // Trigger chart refresh
     } catch (error: unknown) {
       toast({ title: 'Bid failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -290,6 +307,10 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
 
   const handleResolve = async () => {
     if (!signAndSubmitTransaction || !market) return;
+    if (!connected || !account?.address) {
+      toast({ title: 'Please connect your wallet to perform this action.', status: 'warning' });
+      return;
+    }
     setIsSubmitting(true);
     try {
       // Lấy giá cuối cùng từ Hermes API (dùng priceFeedId từ mapping)
@@ -311,6 +332,10 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
 
   const handleClaim = async () => {
     if (!signAndSubmitTransaction) return;
+    if (!connected || !account?.address) {
+      toast({ title: 'Please connect your wallet to perform this action.', status: 'warning' });
+      return;
+    }
     setIsSubmitting(true);
     try {
       await claim(signAndSubmitTransaction, contractAddress);
@@ -326,6 +351,10 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   // Handler withdraw fee
   const handleWithdrawFee = async () => {
     if (!signAndSubmitTransaction) return;
+    if (!connected || !account?.address) {
+      toast({ title: 'Please connect your wallet to perform this action.', status: 'warning' });
+      return;
+    }
     setIsSubmitting(true);
     try {
       await withdrawFee(signAndSubmitTransaction, contractAddress);
@@ -440,14 +469,14 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                       marketAddress={contractAddress}
                       biddingStartTime={market?.bidding_start_time ? Number(market.bidding_start_time) * 1000 : undefined}
                       biddingEndTime={market?.bidding_end_time ? Number(market.bidding_end_time) * 1000 : undefined}
-                      currentTime={Date.now()}
+                      currentTime={currentTime}
                     />
                   </Box>
                 </TabPanel>
                 <TabPanel p={0} pt={2}>
                   <Box position="relative" width="100%">
                     <MarketCharts
-                      chartSymbol={getStandardPairName(market.pair_name) || market?.pair_name}
+                      chartSymbol={pairName}
                       strikePrice={market?.strike_price ? Number(market.strike_price) / 1e8 : Number(market?.strike_price || 0)}
                       chartType="price"
                       height={CHART_HEIGHT}

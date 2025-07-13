@@ -62,7 +62,12 @@ const NavigationSidebar: React.FC = () => {
             >Create Market</Button>
           </Link>
           <Link href="/listaddress" passHref legacyBehavior>
-            <Button as="a" leftIcon={<Icon as={FaList} fontSize="2xl" />} variant="ghost" w="full" justifyContent="flex-start"
+            <Button
+              as="a"
+              leftIcon={<Icon as={FaList} fontSize="2xl" />}
+              variant="ghost"
+              w="full"
+              justifyContent="flex-start"
               bg={router.pathname.startsWith('/listaddress') ? '#23262f' : 'transparent'}
               color={router.pathname.startsWith('/listaddress') ? 'white' : '#A0A4AE'}
               borderRadius="full"
@@ -72,7 +77,14 @@ const NavigationSidebar: React.FC = () => {
               pl={8}
               _hover={{ bg: router.pathname.startsWith('/listaddress') ? '#23262f' : 'rgba(79,140,255,0.04)', color: 'white' }}
               _active={{ bg: '#23262f', color: 'white' }}
-            >Markets</Button>
+              onClick={e => {
+                if (router.pathname.startsWith('/listaddress')) {
+                  e.preventDefault();
+                }
+              }}
+            >
+              Markets
+            </Button>
           </Link>
           <Link href="/news" passHref legacyBehavior>
             <Button as="a" leftIcon={<Icon as={FaNewspaper} fontSize="2xl" />} variant="ghost" w="full" justifyContent="flex-start"

@@ -185,3 +185,7 @@ NEXT_PUBLIC_GRAPHQL_ENDPOINT=https://your-graphql-api-endpoint.com/graphql
 ```
 
 - The GraphQL API should provide a `positionHistory(marketAddress: String!): [PositionHistoryPoint!]!` query returning objects with `time`, `long`, and `short` fields. 
+
+## Environment Variables
+
+- `NEXT_PUBLIC_BACKEND_API`: URL backend (ví dụ: `http://localhost:3000` khi phát triển local, hoặc domain backend khi deploy Vercel). Dùng để frontend fetch event đã filter từ backend. 

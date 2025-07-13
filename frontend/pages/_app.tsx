@@ -1,9 +1,9 @@
 import type { AppProps } from 'next/app';
 import { ChakraProvider, Box } from '@chakra-ui/react';
 import { AptosWalletAdapterProvider } from "@aptos-labs/wallet-adapter-react";
-import theme from '../themes/theme';
-import NavigationSidebar from '../components/Navigation';
-import Topbar from '../components/Topbar';
+import theme from '../src/themes/theme';
+import NavigationSidebar from '../src/components/Navigation';
+import Topbar from '../src/components/Topbar';
 
 export default function App({ Component, pageProps }: AppProps) {
   return (

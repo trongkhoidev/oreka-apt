@@ -1,8 +1,7 @@
 // Aptos contract configuration for MAINNET
 // Update these addresses after deploying to mainnet!
-export const FACTORY_MODULE_ADDRESS = "0x575c0433eebe118c0593b50ae325599f845ba066ee6d4058a618e07fd31c7edb";
-export const FACTORY_MODULE_NAME = "factory";
-export const FACTORY_FUNCTION_NAME = "deploy";
+export const BINARY_OPTION_MARKET_MODULE_ADDRESS = "0xc921fc8dcdb4a3938115a7a198a16d60ab6fe17caefd2cbb36073c3a42f4aa69";
+export const BINARY_OPTION_MARKET_MODULE_NAME = "binary_option_market";
 
 // Price feed mapping for Aptos (using Pyth or other oracle)
 export const PRICE_FEED_MAPPING = {
@@ -17,6 +16,8 @@ export const APTOS_NODE_URL = process.env.NEXT_PUBLIC_APTOS_NODE_URL || 'https:/
 
 // Contract addresses for MAINNET
 export const DEPLOYED_ADDRESSES = {
-  factory: "0x575c0433eebe118c0593b50ae325599f845ba066ee6d4058a618e07fd31c7edb",
-  binaryOptionMarket: "0x575c0433eebe118c0593b50ae325599f845ba066ee6d4058a618e07fd31c7edb",
+  binaryOptionMarket: "0xc921fc8dcdb4a3938115a7a198a16d60ab6fe17caefd2cbb36073c3a42f4aa69",
 };
+
+// Legacy factory address for backward compatibility (if needed)
+export const FACTORY_MODULE_ADDRESS = BINARY_OPTION_MARKET_MODULE_ADDRESS;

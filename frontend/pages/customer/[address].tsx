@@ -1,6 +1,6 @@
 import React from 'react';
 import { useRouter } from 'next/router';
-import Customer from '../../components/Customer';
+import Customer from '../../src/components/Customer';
 
 const CustomerPage: React.FC = () => {
   const router = useRouter();

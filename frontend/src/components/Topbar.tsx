@@ -5,6 +5,7 @@ import { FaList, FaNewspaper } from 'react-icons/fa';
 import ConnectWallet from './ConnectWallet';
 import { useRouter } from 'next/router';
 import { SearchService, SearchResult } from '../services/SearchService';
+import { getStandardPairName } from '../config/pairMapping';
 
 const Topbar: React.FC = () => {
   const [search, setSearch] = useState('');
@@ -82,9 +83,27 @@ const Topbar: React.FC = () => {
                     _hover={{ bg: '#23262f', cursor: 'pointer' }}
                     onClick={() => handleSelect(item)}
                   >
-                    <HStack spacing={3}>
-                      <Icon as={item.type === 'market' ? FaList : FaNewspaper} color={item.type === 'market' ? '#4F8CFF' : '#A770EF'} boxSize={5} />
-                      <Text color="white" fontWeight="medium" noOfLines={1}>{item.title}</Text>
+                    <HStack spacing={3} align="flex-start">
+                      {/* Avatar/logo cho market */}
+                      {item.type === 'market' ? (
+                        <Box boxSize={8} borderRadius="full" overflow="hidden" bg="#23262f">
+                          <img
+                            src={(item as any).imgSrc || '/images/coinbase.png'}
+                            alt={item.pair}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            onError={e => { e.currentTarget.src = '/images/coinbase.png'; }}
+                          />
+                        </Box>
+                      ) : (
+                        <Icon as={FaNewspaper} color="#A770EF" boxSize={5} mt={1} />
+                      )}
+                      <Box flex={1}>
+                        <Text color="white" fontWeight="medium" fontSize="md" noOfLines={2}>
+                         
+                          {item.type === 'market' ? (item as any).cardTitle : item.title}
+                        </Text>
+                        
+                      </Box>
                       <Text color="#A770EF" fontSize="sm" ml="auto">{item.type === 'market' ? 'Market' : 'News'}</Text>
                     </HStack>
                   </ListItem>

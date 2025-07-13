@@ -65,16 +65,20 @@ const MarketBetPanel: React.FC<MarketBetPanelProps> = ({
     <Box bg="gray.800" p={4} borderRadius="xl" mb={4} borderWidth={1} borderColor="gray.700">
       {/* LONG/SHORT Ratio */}
       <HStack align="center" spacing={3} w="100%">
-        {longPercentage > 8 && (
-          <Text fontSize="sm" fontWeight="bold" color="whiteAlpha.800" whiteSpace="nowrap" mb={4}>{longPercentage.toFixed(0)}%</Text>
-        )}
+        <Text fontSize="sm" fontWeight="bold" color="whiteAlpha.800" whiteSpace="nowrap" mb={4}>{longPercentage.toFixed(0)}%</Text>
         <Flex flex="1" align="center" w="100%" h="18px" borderRadius="full" bg="gray.800" border="5px solid" borderColor="gray.400" position="relative" overflow="hidden" boxShadow="inset 0 1px 3px rgba(0,0,0,0.6)" mb={4} p={0}>
-          <Box position="absolute" width={`${longPercentage}%`} bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" transition="width 0.6s ease" h="100%" display="flex" alignItems="center" justifyContent="flex-end" pr={3} left="0" top="0" zIndex={1} />
-          <Box position="absolute" right="0" top="0" h="100%" width={`${shortPercentage}%`} bgGradient="linear(to-r, #FF6B81, #D5006D)" transition="width 0.6s ease" display="flex" alignItems="center" justifyContent="flex-start" pl={3} zIndex={0} />
+          {longPercentage === 100 ? (
+            <Box position="absolute" width="100%" bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" h="100%" left="0" top="0" zIndex={1} />
+          ) : shortPercentage === 100 ? (
+            <Box position="absolute" width="100%" bgGradient="linear(to-r, #FF6B81, #D5006D)" h="100%" right="0" top="0" zIndex={0} />
+          ) : (
+            <>
+              <Box position="absolute" width={`${longPercentage}%`} bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" transition="width 0.6s ease" h="100%" display="flex" alignItems="center" justifyContent="flex-end" pr={3} left="0" top="0" zIndex={1} />
+              <Box position="absolute" right="0" top="0" h="100%" width={`${shortPercentage}%`} bgGradient="linear(to-r, #FF6B81, #D5006D)" transition="width 0.6s ease" display="flex" alignItems="center" justifyContent="flex-start" pl={3} zIndex={0} />
+            </>
+          )}
         </Flex>
-        {shortPercentage > 8 && (
-          <Text fontSize="sm" fontWeight="bold" color="whiteAlpha.800" whiteSpace="nowrap" mb={4}>{shortPercentage.toFixed(0)}%</Text>
-        )}
+        <Text fontSize="sm" fontWeight="bold" color="whiteAlpha.800" whiteSpace="nowrap" mb={4}>{shortPercentage.toFixed(0)}%</Text>
       </HStack>
       <HStack spacing={4} mb={3} ml={2} mr={2}>
         <Button border="1px solid" borderColor="gray.300" borderRadius="20px" colorScheme="gray" bg="gray.800" width="50%" onClick={() => setSelectedSide(0)} leftIcon={<FaArrowUp />} textColor="#28a745" textShadow="1px 1px 12px rgba(40, 167, 69, 0.7)" isDisabled={!connected || phase !== 1 || isPending} _hover={{ bg: "gray.700", boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)" }} _active={{ bg: "#cececc" }} isActive={selectedSide === 0}>UP</Button>

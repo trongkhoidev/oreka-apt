@@ -3,7 +3,7 @@ import {
   Box, Container, Heading, Text, VStack, HStack, Button, SimpleGrid, Stack, Divider, Tooltip
 } from '@chakra-ui/react';
 import { FaRocket, FaLock, FaChartLine, FaBolt, FaArrowRight, FaShieldAlt, FaWallet, FaGithub, FaGlobe, FaCode } from 'react-icons/fa';
-import { getAvailableTradingPairs } from '../config/tradingPairs';
+import { getAvailableTradingPairs } from '../src/config/tradingPairs';
 import Head from 'next/head';
 
 const features = [

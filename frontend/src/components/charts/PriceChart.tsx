@@ -83,6 +83,11 @@ const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg 
   useEffect(() => {
     let isMounted = true;
     setIsLoading(true);
+    if (!coinGeckoId) {
+      setChartData([]);
+      setIsLoading(false);
+      return;
+    }
     const { cg, binance, limit } = INTERVAL_MAP[interval];
     const cacheKey = `${coinGeckoId}_${interval}`;
     const now = Date.now();
@@ -102,8 +107,15 @@ const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg 
               setChartData(binanceData);
               priceCache[cacheKey] = { data: binanceData, timestamp: Date.now() };
             }
+          }).catch(e => {
+            console.error('[PriceChart] Binance fetch error:', e);
+            if (isMounted) setChartData([]);
           });
         }
+      })
+      .catch(e => {
+        console.error('[PriceChart] CoinGecko fetch error:', e);
+        if (isMounted) setChartData([]);
       })
       .finally(() => { if (isMounted) setIsLoading(false); });
     return () => { isMounted = false; };
@@ -211,7 +223,7 @@ const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg 
   };
 
   if (isLoading) return <Skeleton height={`${height}px`} />;
-  if (!chartData.length) return <Box height={`${height}px`} display="flex" alignItems="center" justifyContent="center"><Text color="red.400">No chart data available</Text></Box>;
+  if (!chartData.length) return <Box height={`${height}px`} display="flex" alignItems="center" justifyContent="center"><Text color="red.400">Asset not supported for price chart</Text></Box>;
 
   return (
     <Box bg="#0A0B10" borderRadius="xl" p={2}>

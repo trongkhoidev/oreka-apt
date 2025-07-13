@@ -1,16 +1,16 @@
 // import only what is used
-import { FACTORY_MODULE_ADDRESS } from '@/config/contracts';
+import { BINARY_OPTION_MARKET_MODULE_ADDRESS } from '@/config/contracts';
 import { getAptosClient } from '../config/network';
 import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
 import { getPairNameFromPriceFeedId } from '@/config/tradingPairs';
 import { getStandardPairName } from '@/config/pairMapping';
 
-// Debug: Monkey-patch fetch to log stacktrace when calling /module/factory
+// Debug: Monkey-patch fetch to log stacktrace when calling /module/binary_option_market
 if (typeof window !== 'undefined' && window.fetch) {
   const originalFetch = window.fetch;
   window.fetch = function(...args) {
-    if (typeof args[0] === 'string' && args[0].includes('/module/factory')) {
-      console.trace('Fetch /module/factory called from:');
+    if (typeof args[0] === 'string' && args[0].includes('/module/binary_option_market')) {
+      console.trace('Fetch /module/binary_option_market called from:');
     }
     return originalFetch.apply(this, args);
   };
@@ -102,7 +102,7 @@ export async function estimateDeployMarketGas(
     
     // Create transaction payload for simulation
     const payload = {
-      function: `${FACTORY_MODULE_ADDRESS}::factory::deploy_market`,
+      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
       type_arguments: [],
       arguments: [
         params.pairName,
@@ -224,7 +224,7 @@ export async function deployMarketWithGasSettings(
     
     const transaction: InputTransactionData = {
       data: {
-        function: `${FACTORY_MODULE_ADDRESS}::factory::deploy_market`,
+        function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
         typeArguments: [],
         functionArguments: [
           pairName,
@@ -276,7 +276,7 @@ export async function deployMarket(
     
     const transaction: InputTransactionData = {
       data: {
-        function: `${FACTORY_MODULE_ADDRESS}::factory::deploy_market`,
+        function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
         typeArguments: [],
         functionArguments: [
             pairName,
@@ -303,10 +303,11 @@ export async function deployMarket(
 }
 
 export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
+  if (!owner || typeof owner !== 'string' || !owner.startsWith('0x')) return [];
   try {
     const aptos = getAptosClient();
     const payload = {
-      function: `${FACTORY_MODULE_ADDRESS}::factory::get_contracts_by_owner` as `${string}::${string}::${string}`,
+      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::get_markets_by_owner` as `${string}::${string}::${string}`,
       type_arguments: [],
       arguments: [owner],
     };
@@ -322,43 +323,64 @@ export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
 
 export async function getMarketDetails(marketObjectAddress: string): Promise<MarketInfo | null> {
   try {
-    const resourceType = `${FACTORY_MODULE_ADDRESS}::binary_option_market::Market` as `${string}::${string}::${string}`;
+    const resourceType = `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::Market` as `${string}::${string}::${string}`;
     const baseUrl = 'https://fullnode.mainnet.aptoslabs.com/v1/accounts';
     const url = `${baseUrl}/${marketObjectAddress}/resource/${resourceType}`;
-    //console.log('[getMarketDetails] Fetching official API:', url);
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
+    let retryCount = 0;
+    while (retryCount < 3) {
+      try {
+        const response = await fetch(url);
+        if (response.status === 429) {
+          console.warn('[getMarketDetails] Rate limited (429). Retrying after 2 minutes...');
+          await new Promise(res => setTimeout(res, 2 * 60 * 1000));
+          retryCount++;
+          continue;
+        }
+        if (response.status === 404) {
+          console.warn('[getMarketDetails] Resource not found (404):', url);
+          return null;
+        }
+        if (!response.ok) {
+          throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
+        }
+        const resource = await response.json();
+        if (!resource || !resource.data) {
+          throw new Error(`Market resource not found for address: ${marketObjectAddress}`);
+        }
+        const market = resource.data;
+        return {
+          market_address: marketObjectAddress,
+          owner: market.creator || '',
+          creator: market.creator || '',
+          pair_name: getStandardPairName(market.price_feed_id || ''),
+          strike_price: market.strike_price ? String(market.strike_price) : '0',
+          fee_percentage: market.fee_percentage ? String(market.fee_percentage) : '0',
+          bidding_start_time: market.bidding_start_time ? String(market.bidding_start_time) : '0',
+          bidding_end_time: market.bidding_end_time ? String(market.bidding_end_time) : '0',
+          maturity_time: market.maturity_time ? String(market.maturity_time) : '0',
+          total_amount: market.total_amount ? String(market.total_amount) : '0',
+          long_amount: market.long_amount ? String(market.long_amount) : '0',
+          short_amount: market.short_amount ? String(market.short_amount) : '0',
+          total_bids: market.total_bids ? String(market.total_bids) : '0',
+          long_bids: market.long_bids ? String(market.long_bids) : '0',
+          short_bids: market.short_bids ? String(market.short_bids) : '0',
+          result: market.result !== undefined ? String(market.result) : '2',
+          is_resolved: !!market.is_resolved,
+          final_price: market.final_price ? String(market.final_price) : '0',
+          fee_withdrawn: !!market.fee_withdrawn,
+          created_at: market.created_at ? String(market.created_at) : '0',
+          price_feed_id: market.price_feed_id || '',
+        };
+      } catch (fetchError) {
+        console.error('[getMarketDetails] Fetch error:', fetchError);
+        retryCount++;
+        if (retryCount >= 3) {
+          throw fetchError;
+        }
+        await new Promise(res => setTimeout(res, 1000 * retryCount)); // Exponential backoff
+      }
     }
-    const resource = await response.json();
-    if (!resource || !resource.data) {
-      throw new Error(`Market resource not found for address: ${marketObjectAddress}`);
-    }
-    const market = resource.data;
-    return {
-      market_address: marketObjectAddress,
-      owner: market.creator || '',
-      creator: market.creator || '',
-      // Always standardize price_feed_id to pair_name using getStandardPairName
-      pair_name: getStandardPairName(market.price_feed_id || ''),
-      strike_price: market.strike_price ? String(market.strike_price) : '0',
-      fee_percentage: market.fee_percentage ? String(market.fee_percentage) : '0',
-      bidding_start_time: market.bidding_start_time ? String(market.bidding_start_time) : '0',
-      bidding_end_time: market.bidding_end_time ? String(market.bidding_end_time) : '0',
-      maturity_time: market.maturity_time ? String(market.maturity_time) : '0',
-      total_amount: market.total_amount ? String(market.total_amount) : '0',
-      long_amount: market.long_amount ? String(market.long_amount) : '0',
-      short_amount: market.short_amount ? String(market.short_amount) : '0',
-      total_bids: market.total_bids ? String(market.total_bids) : '0',
-      long_bids: market.long_bids ? String(market.long_bids) : '0',
-      short_bids: market.short_bids ? String(market.short_bids) : '0',
-      result: market.result !== undefined ? String(market.result) : '2',
-      is_resolved: !!market.is_resolved,
-      final_price: market.final_price ? String(market.final_price) : '0',
-      fee_withdrawn: !!market.fee_withdrawn,
-      created_at: market.created_at ? String(market.created_at) : '0',
-      price_feed_id: market.price_feed_id || '',
-    };
+    return null;
   } catch (error) {
     console.error('[getMarketDetails] Error:', error, marketObjectAddress);
     return null;
@@ -369,16 +391,17 @@ export async function bid(
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
     marketAddress: string, 
     prediction: boolean, 
-    amount: number
+    amount: number,
+    timestampBid: number // thêm tham số này
 ): Promise<string> {
     // Convert amount to octas (1 APT = 1e8 octas)
     const amountInOctas = Math.floor(amount * 1e8);
     // Use standard entry function payload; coin transfer is handled by Move contract
     const transaction: InputTransactionData = {
         data: {
-            function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::bid`,
+            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::bid`,
             typeArguments: [],
-            functionArguments: [marketAddress, prediction, amountInOctas.toString()],
+            functionArguments: [marketAddress, prediction, amountInOctas.toString(), timestampBid.toString()],
         }
     };
     const response = await signAndSubmitTransaction(transaction);
@@ -394,7 +417,7 @@ export async function claim(
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
-            function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::claim`,
+            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::claim`,
             typeArguments: [],
             functionArguments: [marketAddress], // chỉ truyền 1 argument
         }
@@ -422,7 +445,7 @@ export async function resolveMarket(
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
-            function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::resolve_market`,
+            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::resolve_market`,
             typeArguments: [],
             functionArguments: [marketAddress, finalPrice.toString(), result.toString()],
         }
@@ -440,7 +463,7 @@ export async function withdrawFee(
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
-            function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::withdraw_fee`,
+            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::withdraw_fee`,
             typeArguments: [],
             functionArguments: [marketAddress], // chỉ truyền 1 argument
         }
@@ -453,31 +476,11 @@ export async function withdrawFee(
     throw new Error('Transaction did not return a hash');
 }
 
-// Utility to check if factory module exists before calling view function
-async function checkFactoryModuleExists(address: string): Promise<boolean> {
-  const url = `https://fullnode.mainnet.aptoslabs.com/v1/accounts/${address}/module/factory`;
-  console.log('[checkFactoryModuleExists] Fetching endpoint:', url);
-  try {
-    const res = await fetch(url);
-    if (res.status === 200) return true;
-    console.error('[checkFactoryModuleExists] Not found:', url, 'status:', res.status);
-    return false;
-  } catch (e) {
-    console.error('[checkFactoryModuleExists] Error:', e);
-    return false;
-  }
-}
-
 export async function getAllMarkets(): Promise<MarketInfo[]> {
   try {
-    // Check if factory module exists first
-    const exists = await checkFactoryModuleExists(FACTORY_MODULE_ADDRESS);
-    if (!exists) {
-      throw new Error('Factory module does not exist at the configured address.');
-    }
     const aptos = getAptosClient();
     const payload = {
-      function: `${FACTORY_MODULE_ADDRESS}::factory::get_all_markets` as `${string}::${string}::${string}`,
+      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::get_all_markets` as `${string}::${string}::${string}`,
       type_arguments: [],
       arguments: [],
     };
@@ -502,7 +505,7 @@ export async function getUserBid(userAddress: string, marketAddress: string): Pr
   const aptos = getAptosClient();
   const result = await aptos.view({
     payload: {
-      function: `${FACTORY_MODULE_ADDRESS}::binary_option_market::get_user_position`,
+      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::get_user_position`,
       typeArguments: [],
       functionArguments: [userAddress, marketAddress],
     }

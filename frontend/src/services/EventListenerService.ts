@@ -15,8 +15,6 @@ export type MarketEventCallback = (events: MarketEvent[]) => void;
 class EventListenerService {
   private static instance: EventListenerService;
   private listeners: Map<string, Set<MarketEventCallback>> = new Map();
-  private lastSeq: Map<string, string> = new Map();
-  private polling: Map<string, NodeJS.Timeout> = new Map();
   private eventTypes: MarketEventType[] = [
     'BidEvent', 'ResolveEvent', 'ClaimEvent', 'WithdrawFeeEvent', 'InitializeEvent'
   ];
@@ -31,7 +29,6 @@ class EventListenerService {
   subscribe(marketAddress: string, callback: MarketEventCallback) {
     if (!this.listeners.has(marketAddress)) {
       this.listeners.set(marketAddress, new Set());
-      this.startPolling(marketAddress);
     }
     this.listeners.get(marketAddress)!.add(callback);
     return () => this.unsubscribe(marketAddress, callback);
@@ -43,54 +40,37 @@ class EventListenerService {
       set.delete(callback);
       if (set.size === 0) {
         this.listeners.delete(marketAddress);
-        this.stopPolling(marketAddress);
       }
     }
   }
 
-  private startPolling(marketAddress: string) {
-    const poll = async () => {
-      const allEvents: MarketEvent[] = [];
-      for (const type of this.eventTypes) {
+  // Fetch all events for a market ONCE (no polling)
+  async fetchEventsOnce(marketAddress: string): Promise<MarketEvent[]> {
+    const allEvents: MarketEvent[] = [];
+    for (const type of this.eventTypes) {
+      try {
         const events = await this.fetchEvents(marketAddress, type);
         allEvents.push(...events);
-      }
-      if (allEvents.length > 0) {
-        // Sort by sequence_number
-        allEvents.sort((a, b) => Number(a.sequence_number) - Number(b.sequence_number));
-        this.listeners.get(marketAddress)?.forEach(cb => cb(allEvents));
-      }
-    };
-    poll();
-    const interval = setInterval(poll, 10000); // 10s
-    this.polling.set(marketAddress, interval);
-  }
-
-  private stopPolling(marketAddress: string) {
-    const interval = this.polling.get(marketAddress);
-    if (interval) clearInterval(interval);
-    this.polling.delete(marketAddress);
+      } catch (e) {}
+    }
+    if (allEvents.length > 0) {
+      allEvents.sort((a, b) => Number(a.sequence_number) - Number(b.sequence_number));
+      this.notify(marketAddress, allEvents);
+    }
+    return allEvents;
   }
 
   private async fetchEvents(marketAddress: string, eventType: MarketEventType): Promise<MarketEvent[]> {
-    const eventTypeStr = `${FACTORY_MODULE_ADDRESS}::binary_option_market::${eventType}`;
-    const url = `https://fullnode.mainnet.aptoslabs.com/v1/events/by_event_type/${eventTypeStr}`;
-    try {
-      const res = await fetch(url);
-      if (!res.ok) return [];
-      const events = await res.json();
-      if (!Array.isArray(events)) return [];
-      // Filter by market_address in data
-      return events.filter((e: any) => e.data && e.data.market_address && e.data.market_address.toLowerCase() === marketAddress.toLowerCase())
-        .map((e: any) => ({
-          type: eventType,
-          data: e.data,
-          sequence_number: e.sequence_number,
-          timestamp: e.timestamp,
-        }));
-    } catch {
-      return [];
-    }
+    const BACKEND_API = process.env.NEXT_PUBLIC_BACKEND_API || '';
+    const url = `${BACKEND_API}/api/events/${eventType}?market_address=${marketAddress}`;
+    const res = await fetch(url);
+    if (!res.ok) throw { status: res.status };
+    const events = await res.json();
+    return events;
+  }
+
+  private notify(marketAddress: string, events: MarketEvent[]) {
+    this.listeners.get(marketAddress)?.forEach(cb => cb(events));
   }
 }
 

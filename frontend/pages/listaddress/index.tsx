@@ -1,5 +1,5 @@
 import React from 'react';
-import ListAddressOwner from '../../components/ListAddressOwner';
+import ListAddressOwner from '../../src/components/ListAddressOwner';
 
 const ListAddressPage: React.FC = () => {
   return <ListAddressOwner />;

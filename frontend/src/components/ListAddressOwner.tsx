@@ -57,6 +57,7 @@ const ListAddressOwner: React.FC = () => {
   const contractsPerPage = 9;
   const [marketDetails, setMarketDetails] = useState<Record<string, unknown[] | null>>({});
   const [pairPrices, setPairPrices] = useState<Record<string, number>>({});
+  const [forceRefreshMap, setForceRefreshMap] = useState<Record<string, number>>({});
   
   const toast = useToast();
   const router = useRouter();
@@ -90,6 +91,7 @@ const ListAddressOwner: React.FC = () => {
         if (!marketInfos || marketInfos.length === 0) {
           setMarkets([]);
           marketsCache.current[currentFilter] = [];
+          setLoading(false);
           return;
         }
         const detailsArr = await Promise.all(
@@ -97,29 +99,31 @@ const ListAddressOwner: React.FC = () => {
             let details: any = null;
             try {
               details = await getMarketDetails(info.market_address);
-            } catch (e) {}
+            } catch (e) {
+              console.warn('[ListAddressOwner] Failed to get market details for:', info.market_address, e);
+            }
             return { info, details };
           })
         );
         const marketsData: Market[] = detailsArr.map(({ info, details }) => {
           const d = details || info;
           return {
-            creator: d.owner,
-            pair_name: d.pair_name,
-            strike_price: Number(d.strike_price),
-            fee_percentage: Number(d.fee_percentage),
-            total_bids: Number(d.total_bids),
-            long_bids: Number(d.long_bids),
-            short_bids: Number(d.short_bids),
-            total_amount: Number(d.total_amount),
-            long_amount: Number(d.long_amount),
-            short_amount: Number(d.short_amount),
-            result: Number(d.result),
+            creator: d.owner || d.creator || '',
+            pair_name: d.pair_name || '',
+            strike_price: Number(d.strike_price) || 0,
+            fee_percentage: Number(d.fee_percentage) || 0,
+            total_bids: Number(d.total_bids) || 0,
+            long_bids: Number(d.long_bids) || 0,
+            short_bids: Number(d.short_bids) || 0,
+            total_amount: Number(d.total_amount) || 0,
+            long_amount: Number(d.long_amount) || 0,
+            short_amount: Number(d.short_amount) || 0,
+            result: Number(d.result) || 2,
             is_resolved: !!d.is_resolved,
-            bidding_start_time: Number(d.bidding_start_time),
-            bidding_end_time: Number(d.bidding_end_time),
-            maturity_time: Number(d.maturity_time),
-            final_price: Number(d.final_price),
+            bidding_start_time: Number(d.bidding_start_time) || 0,
+            bidding_end_time: Number(d.bidding_end_time) || 0,
+            maturity_time: Number(d.maturity_time) || 0,
+            final_price: Number(d.final_price) || 0,
             fee_withdrawn: !!d.fee_withdrawn,
             _key: d.market_address || '',
             market_address: d.market_address || '',
@@ -128,6 +132,7 @@ const ListAddressOwner: React.FC = () => {
         setMarkets(marketsData);
         marketsCache.current[currentFilter] = marketsData;
       } catch (error) {
+        console.error('[ListAddressOwner] Error fetching markets:', error);
         setMarkets([]);
         marketsCache.current[currentFilter] = [];
       } finally {
@@ -227,7 +232,7 @@ const ListAddressOwner: React.FC = () => {
     } else if (filter === 'resolved') {
       // Results: chỉ phase Maturity (sau bidding_end_time, trước maturity_time, chưa resolved)
       filtered = filtered.filter(market => {
-        return now >= market.bidding_end_time && now < market.maturity_time && !market.is_resolved;
+        return now > market.maturity_time ;
       });
     } else if (filter === 'my') {
       filtered = filtered.filter(market => market.creator.toLowerCase() === walletAddress.toLowerCase());
@@ -320,6 +325,14 @@ const ListAddressOwner: React.FC = () => {
     return (Math.abs(hash) % max) + 1;
   }
 
+  // Hàm gọi khi cần refresh 1 market (ví dụ sau khi bid thành công)
+  const triggerMarketRefresh = (marketAddress: string) => {
+    setForceRefreshMap(prev => ({
+      ...prev,
+      [marketAddress]: (prev[marketAddress] || 0) + 1
+    }));
+  };
+
   if (!connected) {
     return (
       <Container maxW="container.xl" py={8}>
@@ -363,6 +376,7 @@ const ListAddressOwner: React.FC = () => {
                       getMarketPhase={getMarketPhase}
                       getPhaseColor={getPhaseColor}
                       getStableIndex={getStableIndex}
+                      forceRefresh={forceRefreshMap[market.market_address] || 0}
                     />
                   ))}
                 </SimpleGrid>
