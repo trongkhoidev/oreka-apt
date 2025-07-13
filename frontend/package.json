@@ -8,7 +8,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "vercel-build": "npm install --legacy-peer-deps && next build"
   },
   "dependencies": {
     "@aptos-labs/ts-sdk": "^2.0.0",
