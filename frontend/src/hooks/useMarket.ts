@@ -23,8 +23,7 @@ export function useMarket(marketObjectAddress: string) {
   useEffect(() => {
     if (!marketObjectAddress) return;
     fetchMarket(); // initial fetch
-    const unsubscribe = EventListenerService.getInstance().subscribe(marketObjectAddress, (events) => {
-      // Khi có event mới liên quan đến market, fetch lại market
+    const unsubscribe = EventListenerService.getInstance().subscribe(marketObjectAddress, () => {
       fetchMarket();
     });
     return () => { if (unsubscribe) unsubscribe(); };

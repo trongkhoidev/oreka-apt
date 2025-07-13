@@ -1,60 +1,29 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { 
   Box, 
-  Button, 
-  Input, 
+
   VStack, 
   useToast, 
-  HStack, 
-  Icon, 
-  SimpleGrid, 
+ 
   Text, 
-  Select, 
-  Divider, 
-  Progress, 
-  InputGroup, 
-  InputRightAddon, 
-  Spinner, 
-  Slider, 
-  SliderTrack, 
-  SliderFilledTrack, 
-  SliderThumb, 
-  Tooltip, 
-  InputRightElement,
+
   Container,
   Heading,
-  FormControl,
-  FormLabel,
-  NumberInput,
-  NumberInputField,
-  NumberInputStepper,
-  NumberIncrementStepper,
-  NumberDecrementStepper,
-  useColorModeValue,
+
 
   Flex
 } from '@chakra-ui/react';
-import { FaWallet, FaArrowUp, FaArrowDown, FaClock, FaGasPump, FaRocket, FaInfoCircle } from 'react-icons/fa';
 import { TradingPairInfo, getPriceFeedIdFromPairName } from '../config/tradingPairs';
 import { PriceService } from '../services/PriceService';
-import { format } from 'date-fns-tz';
-import { useRouter } from 'next/router';
+
 import { 
-  deployMarket, 
-  getMarketsByOwner, 
   estimateDeployMarketGas, 
   deployMarketWithGasSettings,
   GasSpeed,
   GasEstimate,
-  GAS_SPEED_LABELS,
-  GAS_SPEED_DESCRIPTIONS,
-  getMarketDetails
 } from '../services/aptosMarketService';
-import MarketList from './MarketList';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import ConnectWallet from './ConnectWallet';
-import { getAptosClient } from '../config/network';
-import OwnerMarketList from './owner/OwnerMarketList';
 import OwnerDeployForm from './owner/OwnerDeployForm';
 import PreviewBox from './owner/PreviewBox';
 import NetworkFeeBox from './owner/NetworkFeeBox';
@@ -63,26 +32,6 @@ import DeployButton from './owner/DeployButton';
 
 const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
 
-interface Market {
-  creator: string;
-  pair_name: string;
-  strike_price: number;
-  fee_percentage: number;
-  total_bids: number;
-  long_bids: number;
-  short_bids: number;
-  total_amount: number;
-  long_amount: number;
-  short_amount: number;
-  result: number;
-  is_resolved: boolean;
-  bidding_start_time: number;
-  bidding_end_time: number;
-  maturity_time: number;
-  final_price: number;
-  fee_withdrawn: boolean;
-  _key?: string;
-}
 
 const Owner: React.FC = () => {
   const { connected, account, signAndSubmitTransaction } = useWallet();
@@ -97,20 +46,14 @@ const Owner: React.FC = () => {
   const [biddingEndTime, setBiddingEndTime] = useState('');
   const [feePercentage, setFeePercentage] = useState<string>('1.0');
   const [isDeploying, setIsDeploying] = useState(false);
-  const [loadingMarkets, setLoadingMarkets] = useState(false);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [gasEstimate, setGasEstimate] = useState<GasEstimate | null>(null);
   const [selectedGasSpeed, setSelectedGasSpeed] = useState<GasSpeed>(GasSpeed.NORMAL);
   const [isEstimatingGas, setIsEstimatingGas] = useState(false);
-  const [balance, setBalance] = useState<string>('');
 
   const toast = useToast();
-  const router = useRouter();
-  const bg = useColorModeValue('gray.50', 'gray.800');
-  const formBg = useColorModeValue('white', 'gray.700');
-  const borderColor = useColorModeValue('gray.200', 'gray.600');
 
-  // Tạo danh sách các cặp mặc định từ mapping
+
   const availablePairs: TradingPairInfo[] = [
     { pair: 'APT/USD', symbol: 'APTUSDT', priceFeedId: '03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5' },
     { pair: 'BTC/USD', symbol: 'BTCUSDT', priceFeedId: 'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43' },
@@ -121,53 +64,21 @@ const Owner: React.FC = () => {
     { pair: 'WETH/USD', symbol: 'WETHUSDT', priceFeedId: '9d4294bbcd1174d6f2003ec365831e64cc31d9f6f15a2b85399db8d5000960f6' },
   ];
 
-  const [markets, setMarkets] = useState<Market[]>([]);
 
-  const handlePairSelect = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const selected = availablePairs.find((pair) => pair.pair === event.target.value);
-    setSelectedPair(selected || null);
-    setCurrentPrice(null);
-  };
+
 
   const fetchDeployedContracts = useCallback(async () => {
     if (!connected || !account) return;
-    setLoadingMarkets(true);
     try {
-      const userMarketInfos = await getMarketsByOwner(account.address.toString());
-      const detailsArr = await Promise.all(
-        userMarketInfos.map(async (info) => {
-          const details = await getMarketDetails(info.market_address);
-          return { info, details };
-        })
-      );
-      const mergedMarkets = detailsArr.map(({ info, details }) => {
-        const d = details || info;
-        return {
-          creator: d.owner,
-          pair_name: d.pair_name,
-          strike_price: Number(d.strike_price),
-          fee_percentage: Number(d.fee_percentage),
-          total_bids: Number(d.total_bids),
-          long_bids: Number(d.long_bids),
-          short_bids: Number(d.short_bids),
-          total_amount: Number(d.total_amount),
-          long_amount: Number(d.long_amount),
-          short_amount: Number(d.short_amount),
-          result: Number(d.result),
-          is_resolved: !!d.is_resolved,
-          bidding_start_time: Number(d.bidding_start_time),
-          bidding_end_time: Number(d.bidding_end_time),
-          maturity_time: Number(d.maturity_time),
-          final_price: Number(d.final_price),
-          fee_withdrawn: !!d.fee_withdrawn,
-          _key: d.market_address || '',
-        };
-      });
-      setMarkets(mergedMarkets);
+      // const userMarketInfos = await getMarketsByOwner(account.address.toString());
+      // const detailsArr = await Promise.all(
+      //   userMarketInfos.map(async (info) => {
+      //     const details = await getMarketDetails(info.market_address);
+      //     return { info, details };
+      //   })
+      // );
     } catch (error) {
       console.error('Error fetching deployed contracts:', error);
-    } finally {
-      setLoadingMarkets(false);
     }
   }, [connected, account]);
 
@@ -183,21 +94,6 @@ const Owner: React.FC = () => {
     }
   }, [selectedPair]);
 
-  const fetchBalance = useCallback(async () => {
-    if (!account?.address) return;
-    try {
-      const aptos = getAptosClient();
-      const resources = await aptos.getAccountResources({ accountAddress: account.address.toString() });
-      const coinStore = resources.find((r: any) => r.type.indexOf('0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>') !== -1);
-      if (coinStore && (coinStore as any).data && (coinStore as any).data.coin && (coinStore as any).data.coin.value) {
-        setBalance((parseInt((coinStore as any).data.coin.value, 10) / 1e8).toFixed(4));
-      } else {
-        setBalance('0');
-      }
-    } catch (error) {
-      setBalance('0');
-    }
-  }, [account]);
 
   useEffect(() => {
     fetchDeployedContracts();
@@ -207,31 +103,10 @@ const Owner: React.FC = () => {
     fetchPrices();
   }, [fetchPrices]);
 
-  useEffect(() => {
-    fetchBalance();
-  }, [account, fetchBalance]);
+
 
   // Estimate gas when form parameters change
-  useEffect(() => {
-    if (selectedPair && strikePrice && maturityDate && maturityTime && biddingStartDate && biddingStartTime && biddingEndDate && biddingEndTime) {
-      estimateGas();
-    }
-  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed]);
-
-  const resetForm = () => {
-    setStrikePrice('');
-    setSelectedPair(null);
-    setMaturityDate('');
-    setMaturityTime('');
-    setBiddingStartDate('');
-    setBiddingStartTime('');
-    setBiddingEndDate('');
-    setBiddingEndTime('');
-    setFeePercentage('1.0');
-    setGasEstimate(null);
-  };
-
-  const estimateGas = async () => {
+  const estimateGas = useCallback(async () => {
     if (!selectedPair || !strikePrice || !maturityDate || !maturityTime || !biddingStartDate || !biddingStartTime || !biddingEndDate || !biddingEndTime) {
       return;
     }
@@ -252,12 +127,31 @@ const Owner: React.FC = () => {
       };
       const estimate = await estimateDeployMarketGas(params, selectedGasSpeed);
       setGasEstimate(estimate);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error estimating gas:', error);
       // Don't show toast for gas estimation errors as they're not critical
     } finally {
       setIsEstimatingGas(false);
     }
+  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed, feePercentage]);
+
+  useEffect(() => {
+    if (selectedPair && strikePrice && maturityDate && maturityTime && biddingStartDate && biddingStartTime && biddingEndDate && biddingEndTime) {
+      estimateGas();
+    }
+  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed, feePercentage, estimateGas]);
+
+  const resetForm = () => {
+    setStrikePrice('');
+    setSelectedPair(null);
+    setMaturityDate('');
+    setMaturityTime('');
+    setBiddingStartDate('');
+    setBiddingStartTime('');
+    setBiddingEndDate('');
+    setBiddingEndTime('');
+    setFeePercentage('1.0');
+    setGasEstimate(null);
   };
 
   const deployContract = async () => {
@@ -289,13 +183,21 @@ const Owner: React.FC = () => {
         biddingEndTime: biddingEndTimestamp,
         maturityTime: maturityTimestamp,
       };
-      const txHash = await deployMarketWithGasSettings(signAndSubmitTransaction as any, params, selectedGasSpeed);
+      // Wrap signAndSubmitTransaction to return a string hash if needed
+      const txHash = await deployMarketWithGasSettings(
+        async (tx: unknown) => {
+          const result = await (signAndSubmitTransaction as (tx: unknown) => Promise<{ hash: string }>)(tx);
+          return result.hash;
+        },
+        params,
+        selectedGasSpeed
+      );
       toast({ title: 'Market deployment transaction submitted!', description: `Transaction hash: ${txHash}`, status: 'info', duration: 5000, isClosable: true, });
       resetForm();
       setTimeout(() => fetchDeployedContracts(), 3000);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deploying contract:', error);
-      toast({ title: 'Error deploying market', description: error?.message || 'An unexpected error occurred.', status: 'error', duration: 5000, isClosable: true });
+      toast({ title: 'Error deploying market', description: (error as Error)?.message || 'An unexpected error occurred.', status: 'error', duration: 5000, isClosable: true });
     } finally {
       setIsDeploying(false);
     }
@@ -304,10 +206,10 @@ const Owner: React.FC = () => {
   // Fee slider logic
   const [showFeeTooltip, setShowFeeTooltip] = useState(false);
   const handleFeeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value;
+    const value = e.target.value;
     // Only allow numbers and decimal point
     if (/^\d*\.?\d*$/.test(value)) {
-      let num = parseFloat(value);
+      const num = parseFloat(value);
       if (isNaN(num) || value === '') {
         setFeePercentage('');
       } else if (num < 0.1) {
@@ -323,7 +225,6 @@ const Owner: React.FC = () => {
     setFeePercentage(val.toFixed(1));
   };
 
-  // Thêm logic tính % change giữa strikePrice và currentPrice
   const getPriceChange = () => {
     if (!strikePrice || !currentPrice) return null;
     const strike = parseFloat(strikePrice);
@@ -334,7 +235,6 @@ const Owner: React.FC = () => {
   };
   const priceChange = getPriceChange();
 
-  // Tính số trường đã nhập cho progress (Initial -> Creating)
   const progressFields = [selectedPair, strikePrice, biddingStartDate && biddingStartTime, biddingEndDate && biddingEndTime, maturityDate && maturityTime, feePercentage];
   const filledFields = progressFields.filter(Boolean).length;
   // Progress: Initial (0%), Creating (80%), Finished (100%)
@@ -346,7 +246,6 @@ const Owner: React.FC = () => {
   useEffect(() => { setProgress(progressStep); }, [progressStep]);
   const [isFinishing, setIsFinishing] = useState(false);
 
-  // Logic kiểm tra thời gian hợp lệ
   const isValidTime = () => {
     if (!biddingStartDate || !biddingStartTime || !biddingEndDate || !biddingEndTime || !maturityDate || !maturityTime) return false;
     const now = Date.now();
@@ -356,7 +255,6 @@ const Owner: React.FC = () => {
     return now <= start && start < end && end < maturity;
   };
 
-  // Deploy contract với kiểm tra thời gian
   const deployContractWithCheck = async () => {
     if (!isValidTime()) {
       toast({ title: 'Invalid time', description: 'now <= bidding start < bidding end < maturity', status: 'error', duration: 4000, isClosable: true });
@@ -368,11 +266,10 @@ const Owner: React.FC = () => {
     setTimeout(() => setIsFinishing(false), 1200);
   };
 
-  // Helper: format date/time ngắn gọn (dd/MM HH:mm)
   function formatShortDateTime(dateStr: string, timeStr: string) {
     if (!dateStr || !timeStr) return '';
     // dateStr: yyyy-mm-dd hoặc yyyy/MM/dd
-    const [y, m, d] = dateStr.includes('-') ? dateStr.split('-') : dateStr.split('/');
+    const [ m, d] = dateStr.includes('-') ? dateStr.split('-') : dateStr.split('/');
     return `${d}/${m} ${timeStr}`;
   }
 
@@ -448,7 +345,6 @@ const Owner: React.FC = () => {
             />
           </Flex>
         </Flex>
-        {/* Progress bar và Button nằm ngoài box, dưới form, full width */}
         <Box mt={10} w="100%">
           <DeployProgressBar progress={progress} isFinishing={isFinishing} />
           <DeployButton

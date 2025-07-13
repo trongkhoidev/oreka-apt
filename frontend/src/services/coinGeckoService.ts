@@ -34,7 +34,7 @@ export async function fetchCoinGeckoHistory(symbol: string, interval: string = '
     }
     const data = await res.json();
     return (data.prices || []).map(([time, price]: [number, number]) => ({ time, close: price }));
-  } catch (e) {
+  } catch {
    // console.error(`[CoinGecko] Fetch error for url: ${url}`, e);
     return [];
   }

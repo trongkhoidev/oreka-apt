@@ -6,7 +6,7 @@ import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { bid, claim, resolveMarket, getMarketDetails, getUserBid, withdrawFee } from '../services/aptosMarketService';
 import MarketCharts from './charts/MarketCharts';
 import { PriceService } from '../services/PriceService';
-import { getAvailableTradingPairs, getTradingPairInfo } from '../config/tradingPairs';
+import { getAvailableTradingPairs } from '../config/tradingPairs';
 import MarketInfo from './customer/MarketInfo';
 import MarketTimeline from './customer/MarketTimeline';
 import MarketBetPanel from './customer/MarketBetPanel';
@@ -26,9 +26,8 @@ interface CustomerProps {
 
 const phaseNames = ['Pending', 'Bidding', 'Maturity'];
 
-// Helper: fetch final price from Hermes API (dùng priceFeedId từ mapping)
 async function fetchFinalPriceFromHermes(pairName: string): Promise<number> {
-  // Lấy priceFeedId chuẩn từ mapping
+
   const priceFeedId = getPriceFeedIdFromPairName(pairName);
   if (!priceFeedId) throw new Error('No priceFeedId found for pair');
   const url = `https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x${priceFeedId}`;
@@ -36,7 +35,7 @@ async function fetchFinalPriceFromHermes(pairName: string): Promise<number> {
   if (!res.ok) throw new Error('Failed to fetch price from Hermes');
   const data = await res.json();
   const parsedArr = data.parsed || [];
-  // So sánh id trả về (không có 0x) với id gốc (bỏ 0x)
+
   const priceObj = parsedArr.find((p: { id: string; price: { price: number; expo: number } }) => (p.id || '').toLowerCase() === priceFeedId.toLowerCase());
   if (!priceObj || !priceObj.price || typeof priceObj.price.price === 'undefined' || typeof priceObj.price.expo === 'undefined') {
     throw new Error('No price found');
@@ -44,19 +43,19 @@ async function fetchFinalPriceFromHermes(pairName: string): Promise<number> {
   const price = Number(priceObj.price.price);
   const expo = Number(priceObj.price.expo);
   const realPrice = price * Math.pow(10, expo);
-  return Math.round(realPrice * 1e8); // fixed 8 số lẻ cho contract
+  return Math.round(realPrice * 1e8); 
 }
 
 // Helper: format claimable amount with 2, 4, or 6 decimals
 const formatClaimAmount = (amount: number) => {
   if (!isFinite(amount)) return '--';
-  // Chuyển về số thực APT
+
   const apt = amount / 1e8;
-  // Nếu là số nguyên hoặc chỉ có 2 số lẻ, hiển thị 2
+
   if (Number.isInteger(apt * 100)) return apt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  // Nếu có 4 số lẻ, hiển thị 4
+
   if (Number(apt * 10000) === 0) return apt.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-  // Nếu có nhiều số lẻ hơn, hiển thị 6
+
   return apt.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 6 });
 };
 
@@ -75,10 +74,8 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const [showRules, setShowRules] = useState(false);
   const [userPositions, setUserPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
   const [positionHistory, setPositionHistory] = useState<{ time: number; long: number; short: number }[]>([]);
-  const [loadingChart, setLoadingChart] = useState(true);
   const [refreshChart, setRefreshChart] = useState(0);
 
-  // Thêm state currentTime để realtime chart
   const [currentTime, setCurrentTime] = useState(Date.now());
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -96,8 +93,8 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
           short: Number(short)
         });
         console.log('userPositions set:', { long: Number(long), short: Number(short) });
-      } catch (e) {
-        console.error('getUserBid error:', e);
+      } catch {
+        console.error('getUserBid error');
         setUserPositions({ long: 0, short: 0 });
       }
     } else {
@@ -143,11 +140,10 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     if (!contractAddress) return;
     let isMounted = true;
     const fetchPositionHistory = async () => {
-      setLoadingChart(true);
       try {
         // Fetch all BidEvents from API
         const bidEvents = await getMarketBidEvents(contractAddress);
-        // Lấy thời gian biddingStartTime và biddingEndTime từ market
+
         const market = await getMarketDetails(contractAddress);
         const biddingStartTime = market?.bidding_start_time ? Number(market.bidding_start_time) * 1000 : undefined;
         const biddingEndTime = market?.bidding_end_time ? Number(market.bidding_end_time) * 1000 : undefined;
@@ -162,10 +158,9 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
         } else {
           if (isMounted) setPositionHistory([]);
         }
-      } catch (error) {
+      } catch {
         if (isMounted) setPositionHistory([]);
       } finally {
-        setLoadingChart(false);
       }
     };
     fetchPositionHistory();
@@ -176,9 +171,15 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   useEffect(() => {
     if (!contractAddress || !account?.address) return;
     fetchUserPositions(); // initial fetch
-    // Lắng nghe event BidEvent liên quan đến market này
     const unsubscribe = EventListenerService.getInstance().subscribe(contractAddress, (events) => {
-      if (events.some(e => e.type === 'BidEvent' && e.data.user?.toLowerCase() === account.address.toString().toLowerCase())) {
+      if (
+        events.some(
+          e =>
+            e.type === 'BidEvent' &&
+            (typeof e.data === 'object' && e.data !== null && 'user' in e.data) &&
+            (e.data as { user?: string }).user?.toLowerCase() === account.address.toString().toLowerCase()
+        )
+      ) {
         fetchUserPositions();
       }
     });
@@ -231,12 +232,11 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const longPercentage = total === 0 ? 50 : (long / total) * 100;
   const shortPercentage = total === 0 ? 50 : (short / total) * 100;
   const pairName = market?.pair_name ? getStandardPairName(market.pair_name) : '';
-  const pairInfo = pairName ? getTradingPairInfo(pairName) : undefined;
   const strike = market?.strike_price ? (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
   const maturity = market?.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
   const fee = market?.fee_percentage ? (Number(market.fee_percentage) / 10).toFixed(1) : '--';
 
-  // Tính claimableAmount đúng logic Move contract
+
   const getClaimableAmount = () => {
     if (!market || !market.is_resolved || !account?.address) return 0;
     const userLong = userPositions.long;
@@ -267,11 +267,11 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const claimableAmount = getClaimableAmount();
   const isWinner = claimableAmount > 0;
 
-  // Kiểm tra user là owner
+
   const isOwner = account?.address && market?.creator && account.address.toString().toLowerCase() === market.creator.toLowerCase();
-  // Kiểm tra đã withdraw fee chưa
+
   const canWithdrawFee = isOwner && market?.is_resolved && !market?.fee_withdrawn;
-  // Tính fee đúng logic contract
+
   const getWithdrawFeeAmount = () => {
     if (!market) return 0;
     const feePercentage = Number(market.fee_percentage);
@@ -313,9 +313,9 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
     setIsSubmitting(true);
     try {
-      // Lấy giá cuối cùng từ Hermes API (dùng priceFeedId từ mapping)
+
       const finalPrice = await fetchFinalPriceFromHermes(market.pair_name);
-      // Tính result theo đúng logic contract
+
       const strike = Number(market.strike_price);
       let result = 2;
       if (finalPrice >= strike) result = 0; // LONG win

@@ -1,11 +1,10 @@
 // EventListenerService: Listen to on-chain events and notify subscribers
-import { FACTORY_MODULE_ADDRESS } from '../config/contracts';
 
 export type MarketEventType = 'BidEvent' | 'ResolveEvent' | 'ClaimEvent' | 'WithdrawFeeEvent' | 'InitializeEvent';
 
 export interface MarketEvent {
   type: MarketEventType;
-  data: any;
+  data: unknown;
   sequence_number: string;
   timestamp: string;
 }
@@ -51,7 +50,7 @@ class EventListenerService {
       try {
         const events = await this.fetchEvents(marketAddress, type);
         allEvents.push(...events);
-      } catch (e) {}
+      } catch  {}
     }
     if (allEvents.length > 0) {
       allEvents.sort((a, b) => Number(a.sequence_number) - Number(b.sequence_number));

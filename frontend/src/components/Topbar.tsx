@@ -1,11 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { Flex, InputGroup, InputLeftElement, Input, Box, List, ListItem, Spinner, Text, HStack, Icon, useOutsideClick } from '@chakra-ui/react';
 import { SearchIcon } from '@chakra-ui/icons';
-import { FaList, FaNewspaper } from 'react-icons/fa';
+import { FaNewspaper } from 'react-icons/fa';
 import ConnectWallet from './ConnectWallet';
 import { useRouter } from 'next/router';
 import { SearchService, SearchResult } from '../services/SearchService';
-import { getStandardPairName } from '../config/pairMapping';
+import Image from 'next/image';
 
 const Topbar: React.FC = () => {
   const [search, setSearch] = useState('');
@@ -84,13 +84,14 @@ const Topbar: React.FC = () => {
                     onClick={() => handleSelect(item)}
                   >
                     <HStack spacing={3} align="flex-start">
-                      {/* Avatar/logo cho market */}
+                      {/* Avatar/logo for market */}
                       {item.type === 'market' ? (
                         <Box boxSize={8} borderRadius="full" overflow="hidden" bg="#23262f">
-                          <img
-                            src={(item as any).imgSrc || '/images/coinbase.png'}
+                          <Image
+                            src={(item as { imgSrc?: string }).imgSrc || '/images/coinbase.png'}
                             alt={item.pair}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            width={32}
+                            height={32}
                             onError={e => { e.currentTarget.src = '/images/coinbase.png'; }}
                           />
                         </Box>
@@ -100,7 +101,7 @@ const Topbar: React.FC = () => {
                       <Box flex={1}>
                         <Text color="white" fontWeight="medium" fontSize="md" noOfLines={2}>
                          
-                          {item.type === 'market' ? (item as any).cardTitle : item.title}
+                          {item.type === 'market' ? (item as unknown as { cardTitle?: string }).cardTitle : item.title}
                         </Text>
                         
                       </Box>

@@ -3,16 +3,9 @@
 export const BINARY_OPTION_MARKET_MODULE_ADDRESS = "0xc921fc8dcdb4a3938115a7a198a16d60ab6fe17caefd2cbb36073c3a42f4aa69";
 export const BINARY_OPTION_MARKET_MODULE_NAME = "binary_option_market";
 
-// Price feed mapping for Aptos (using Pyth or other oracle)
-export const PRICE_FEED_MAPPING = {
-  "BTC-USD": "0x1::pyth::BTC_USD",
-  "ETH-USD": "0x1::pyth::ETH_USD",
-  "APT-USD": "0x1::pyth::APT_USD",
-};
-
 // Network configuration (MAINNET)
 export const APTOS_NETWORK = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'mainnet';
-export const APTOS_NODE_URL = process.env.NEXT_PUBLIC_APTOS_NODE_URL || 'https://fullnode.mainnet.aptoslabs.com';
+export const APTOS_NODE_URL = process.env.NEXT_PUBLIC_APTOS_NODE_URL || 'https://fullnode.mainnet.aptoslabs.com/v1';
 
 // Contract addresses for MAINNET
 export const DEPLOYED_ADDRESSES = {

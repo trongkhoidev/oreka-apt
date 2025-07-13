@@ -1,8 +1,8 @@
 import React from 'react';
 import {
-  Box, VStack, Heading, Text, Select, InputGroup, Input, InputRightAddon, HStack, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, Button, Progress
+  Box, VStack, Heading, Text, Select, InputGroup, Input, InputRightAddon, HStack, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip
 } from '@chakra-ui/react';
-import { FaInfoCircle, FaRocket } from 'react-icons/fa';
+import { FaInfoCircle } from 'react-icons/fa';
 import { TradingPairInfo } from '../../config/tradingPairs';
 
 interface OwnerDeployFormProps {
@@ -40,8 +40,8 @@ const OwnerDeployForm: React.FC<OwnerDeployFormProps> = ({
   biddingStartDate, setBiddingStartDate, biddingStartTime, setBiddingStartTime,
   biddingEndDate, setBiddingEndDate, biddingEndTime, setBiddingEndTime,
   maturityDate, setMaturityDate, maturityTime, setMaturityTime,
-  feePercentage, setFeePercentage, handleFeeInputChange, handleFeeSliderChange,
-  isDeploying, deployContractWithCheck, progress, isFinishing, showFeeTooltip, setShowFeeTooltip
+  feePercentage, handleFeeInputChange, handleFeeSliderChange,
+ showFeeTooltip, setShowFeeTooltip
 }) => {
   return (
     <VStack spacing={5} align="stretch">

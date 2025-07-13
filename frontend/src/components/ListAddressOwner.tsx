@@ -7,11 +7,10 @@ import {
   Text,
   Button,
   Spinner,
-  useToast,
   Flex,
   SimpleGrid,
 } from '@chakra-ui/react';
-import { getMarketsByOwner, getAllMarkets, getMarketDetails, getUserBid } from '../services/aptosMarketService';
+import {  getAllMarkets, getMarketDetails } from '../services/aptosMarketService';
 import { PriceService } from '../services/PriceService';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { useRouter } from 'next/router';
@@ -51,15 +50,12 @@ const ListAddressOwner: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [searchTerm] = useState('');
   const [filter, setFilter] = useState<'all' | 'my' | 'active' | 'resolved' | 'holdings'>('all');
-  const [network, setNetwork] = useState<unknown>(null);
   const [pairFilter, setPairFilter] = useState('');
   const [page, setPage] = useState(1);
   const contractsPerPage = 9;
-  const [marketDetails, setMarketDetails] = useState<Record<string, unknown[] | null>>({});
+  const [marketDetails] = useState<Record<string, unknown[] | null>>({});
   const [pairPrices, setPairPrices] = useState<Record<string, number>>({});
-  const [forceRefreshMap, setForceRefreshMap] = useState<Record<string, number>>({});
   
-  const toast = useToast();
   const router = useRouter();
 
   type FilterType = 'all' | 'active' | 'resolved' | 'my' | 'holdings';
@@ -73,30 +69,28 @@ const ListAddressOwner: React.FC = () => {
   const allowedPairs = useMemo(() => getAvailableTradingPairs().map(p => p.pair), []);
   const uniquePairs = useMemo(() => Array.from(new Set(markets.map(m => m.pair_name))).filter(pair => allowedPairs.includes(pair)), [markets, allowedPairs]);
 
-  // Cache markets theo filter để tránh gọi lại API không cần thiết
   const marketsCache = React.useRef<Record<string, Market[]>>({});
 
-  // Debounce fetchMarkets để tránh gọi liên tục khi chuyển tab
-  const debouncedFetchMarkets = useCallback(
-    debounce(async (currentFilter: string, currentWallet: string, currentNetwork: unknown) => {
-      setLoading(true);
-      // Nếu đã có cache cho filter này, dùng cache
-      if (marketsCache.current[currentFilter]) {
-        setMarkets(marketsCache.current[currentFilter]);
+
+  useEffect(() => {
+    setLoading(true);
+    const debouncedFetch = debounce(async () => {
+      if (marketsCache.current[filter]) {
+        setMarkets(marketsCache.current[filter]);
         setLoading(false);
         return;
       }
       try {
-        const marketInfos = await getAllMarkets();
+        const marketInfos: { market_address: string; owner: string; pair_name: string; strike_price: string; fee_percentage: string; total_bids: string; long_bids: string; short_bids: string; total_amount: string; long_amount: string; short_amount: string; result: string; is_resolved: boolean; bidding_start_time: string; bidding_end_time: string; maturity_time: string; final_price: string; fee_withdrawn: boolean }[] = await getAllMarkets();
         if (!marketInfos || marketInfos.length === 0) {
           setMarkets([]);
-          marketsCache.current[currentFilter] = [];
+          marketsCache.current[filter] = [];
           setLoading(false);
           return;
         }
         const detailsArr = await Promise.all(
           marketInfos.map(async (info) => {
-            let details: any = null;
+            let details: unknown = null;
             try {
               details = await getMarketDetails(info.market_address);
             } catch (e) {
@@ -106,53 +100,42 @@ const ListAddressOwner: React.FC = () => {
           })
         );
         const marketsData: Market[] = detailsArr.map(({ info, details }) => {
-          const d = details || info;
+          const d = (details || info) as unknown;
           return {
-            creator: d.owner || d.creator || '',
-            pair_name: d.pair_name || '',
-            strike_price: Number(d.strike_price) || 0,
-            fee_percentage: Number(d.fee_percentage) || 0,
-            total_bids: Number(d.total_bids) || 0,
-            long_bids: Number(d.long_bids) || 0,
-            short_bids: Number(d.short_bids) || 0,
-            total_amount: Number(d.total_amount) || 0,
-            long_amount: Number(d.long_amount) || 0,
-            short_amount: Number(d.short_amount) || 0,
-            result: Number(d.result) || 2,
-            is_resolved: !!d.is_resolved,
-            bidding_start_time: Number(d.bidding_start_time) || 0,
-            bidding_end_time: Number(d.bidding_end_time) || 0,
-            maturity_time: Number(d.maturity_time) || 0,
-            final_price: Number(d.final_price) || 0,
-            fee_withdrawn: !!d.fee_withdrawn,
-            _key: d.market_address || '',
-            market_address: d.market_address || '',
+            creator: typeof d === 'object' && d !== null && 'owner' in d ? (d as { owner?: string; creator?: string }).owner || (d as { creator?: string }).creator || '' : '',
+            pair_name: typeof d === 'object' && d !== null && 'pair_name' in d ? (d as { pair_name?: string }).pair_name || '' : '',
+            strike_price: typeof d === 'object' && d !== null && 'strike_price' in d ? Number((d as { strike_price?: string | number }).strike_price) || 0 : 0,
+            fee_percentage: typeof d === 'object' && d !== null && 'fee_percentage' in d ? Number((d as { fee_percentage?: string | number }).fee_percentage) || 0 : 0,
+            total_bids: typeof d === 'object' && d !== null && 'total_bids' in d ? Number((d as { total_bids?: string | number }).total_bids) || 0 : 0,
+            long_bids: typeof d === 'object' && d !== null && 'long_bids' in d ? Number((d as { long_bids?: string | number }).long_bids) || 0 : 0,
+            short_bids: typeof d === 'object' && d !== null && 'short_bids' in d ? Number((d as { short_bids?: string | number }).short_bids) || 0 : 0,
+            total_amount: typeof d === 'object' && d !== null && 'total_amount' in d ? Number((d as { total_amount?: string | number }).total_amount) || 0 : 0,
+            long_amount: typeof d === 'object' && d !== null && 'long_amount' in d ? Number((d as { long_amount?: string | number }).long_amount) || 0 : 0,
+            short_amount: typeof d === 'object' && d !== null && 'short_amount' in d ? Number((d as { short_amount?: string | number }).short_amount) || 0 : 0,
+            result: typeof d === 'object' && d !== null && 'result' in d ? Number((d as { result?: string | number }).result) || 2 : 2,
+            is_resolved: typeof d === 'object' && d !== null && 'is_resolved' in d ? Boolean((d as { is_resolved?: boolean }).is_resolved) : false,
+            bidding_start_time: typeof d === 'object' && d !== null && 'bidding_start_time' in d ? Number((d as { bidding_start_time?: string | number }).bidding_start_time) || 0 : 0,
+            bidding_end_time: typeof d === 'object' && d !== null && 'bidding_end_time' in d ? Number((d as { bidding_end_time?: string | number }).bidding_end_time) || 0 : 0,
+            maturity_time: typeof d === 'object' && d !== null && 'maturity_time' in d ? Number((d as { maturity_time?: string | number }).maturity_time) || 0 : 0,
+            final_price: typeof d === 'object' && d !== null && 'final_price' in d ? Number((d as { final_price?: string | number }).final_price) || 0 : 0,
+            fee_withdrawn: typeof d === 'object' && d !== null && 'fee_withdrawn' in d ? Boolean((d as { fee_withdrawn?: boolean }).fee_withdrawn) : false,
+            _key: typeof d === 'object' && d !== null && 'market_address' in d ? (d as { market_address?: string }).market_address || '' : '',
+            market_address: typeof d === 'object' && d !== null && 'market_address' in d ? (d as { market_address?: string }).market_address || '' : '',
           };
         });
         setMarkets(marketsData);
-        marketsCache.current[currentFilter] = marketsData;
+        marketsCache.current[filter] = marketsData;
       } catch (error) {
         console.error('[ListAddressOwner] Error fetching markets:', error);
         setMarkets([]);
-        marketsCache.current[currentFilter] = [];
+        marketsCache.current[filter] = [];
       } finally {
         setLoading(false);
       }
-    }, 400),
-    []
-  );
-
-  useEffect(() => {
-    const petraNetwork = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'mainnet';
-      setNetwork(petraNetwork);
-  }, []);
-
-  useEffect(() => {
-    debouncedFetchMarkets(filter, walletAddress, network);
-    return () => {
-      debouncedFetchMarkets.cancel();
-    };
-  }, [filter, walletAddress, network]);
+    }, 400);
+    debouncedFetch();
+    return () => { debouncedFetch.cancel(); };
+  }, [filter, walletAddress]);
 
   // Helper: get phase for a market (Pending, Bidding, Maturity, Resolved)
   function getMarketPhase(market: Market) {
@@ -192,7 +175,7 @@ const ListAddressOwner: React.FC = () => {
   }, [markets, walletAddress, filter]);
 
   // Refactor handleAddressClick: always use market.market_address for navigation
-  const handleAddressClick = useCallback((market: Market, marketDetails: unknown) => {
+  const handleAddressClick = useCallback((market: Market) => {
     try {
       // Always use market.market_address as contract address, fallback to empty string
       const contractAddress = market.market_address || market._key || '';
@@ -212,9 +195,7 @@ const ListAddressOwner: React.FC = () => {
 
   // Filtering logic for tabs
   useEffect(() => {
-    // Log dữ liệu market để debug
     console.log('markets:', markets);
-    // Bỏ filter allowedPairs để hiển thị tất cả market
     let filtered = markets;
     if (searchTerm) {
       filtered = filtered.filter(market => 
@@ -225,12 +206,10 @@ const ListAddressOwner: React.FC = () => {
     }
     const now = Math.floor(Date.now() / 1000);
     if (filter === 'active') {
-      // Quests: chỉ phase Bidding
       filtered = filtered.filter(market => {
         return now >= market.bidding_start_time && now < market.bidding_end_time && !market.is_resolved;
       });
     } else if (filter === 'resolved') {
-      // Results: chỉ phase Maturity (sau bidding_end_time, trước maturity_time, chưa resolved)
       filtered = filtered.filter(market => {
         return now > market.maturity_time ;
       });
@@ -271,7 +250,6 @@ const ListAddressOwner: React.FC = () => {
         priceResults.forEach(({ pair, price }) => {
           if (price !== undefined) priceMap[pair] = price;
         });
-        // Chỉ update nếu giá thực sự thay đổi
         setPairPrices(prev => {
           const prevStr = JSON.stringify(prev);
           const nextStr = JSON.stringify(priceMap);
@@ -283,7 +261,6 @@ const ListAddressOwner: React.FC = () => {
     fetchPrices();
     interval = setInterval(fetchPrices, 20000);
 
-    // Pause polling khi tab không active
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') fetchPrices();
     };
@@ -299,14 +276,12 @@ const ListAddressOwner: React.FC = () => {
   const totalPages = Math.ceil(filtered.length / contractsPerPage);
   const paginatedMarkets = filtered.slice((page - 1) * contractsPerPage, page * contractsPerPage);
 
-  // Cleanup effect khi component unmount
   useEffect(() => {
     return () => {
       console.log('ListAddressOwner component unmounting');
     };
   }, []);
 
-  // Thêm hàm getPhaseColor
   const getPhaseColor = (phase: string) => {
     switch (phase) {
       case 'Pending': return '#66FF00';
@@ -325,13 +300,7 @@ const ListAddressOwner: React.FC = () => {
     return (Math.abs(hash) % max) + 1;
   }
 
-  // Hàm gọi khi cần refresh 1 market (ví dụ sau khi bid thành công)
-  const triggerMarketRefresh = (marketAddress: string) => {
-    setForceRefreshMap(prev => ({
-      ...prev,
-      [marketAddress]: (prev[marketAddress] || 0) + 1
-    }));
-  };
+
 
   if (!connected) {
     return (
@@ -347,7 +316,7 @@ const ListAddressOwner: React.FC = () => {
   return (
     <Flex minH="100vh" bg="dark.900">
       <Flex direction="column" flex={1} minH="100vh" bg="dark.900">
-        {/* Tabs và filter */}
+        {/* Tabs and filter */}
         <ListAddressTabs
           tabList={tabList}
           filter={filter}
@@ -371,12 +340,11 @@ const ListAddressOwner: React.FC = () => {
                     <ListAddressMarketCard
                       key={market._key || market.pair_name}
                       market={market}
-                      onClick={() => handleAddressClick(market, marketDetails[market._key || market.pair_name])}
+                      onClick={() => handleAddressClick(market)}
                       pairPrices={pairPrices}
                       getMarketPhase={getMarketPhase}
                       getPhaseColor={getPhaseColor}
                       getStableIndex={getStableIndex}
-                      forceRefresh={forceRefreshMap[market.market_address] || 0}
                     />
                   ))}
                 </SimpleGrid>

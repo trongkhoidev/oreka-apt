@@ -9,7 +9,7 @@ export async function hasUserHoldings(userAddress: string, marketAddress: string
   try {
     const [long, short] = await getUserBid(userAddress, marketAddress);
     return Number(long) > 0 || Number(short) > 0;
-  } catch (e) {
+  } catch {
     return false;
   }
 } 

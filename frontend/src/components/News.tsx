@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Box,
   VStack,
@@ -24,12 +24,9 @@ import {
 } from "@chakra-ui/icons";
 import { NewsService, NewsArticle } from "../services/NewsService";
 
-// --- API constants ---
-const CRYPTOPANIC_API_KEY = "8ae0b6a4a27dfdd646c94faea903f8a30d5247f2";
-const COINMARKETCAL_API_KEY = "4ECzX3OEyT7uohNB9mKPH5c7yuFrfJ1BIDhdSRob";
 
-const GAINER_SYMBOLS = ["APT", "BTC", "ETH", "SOL", "SUI", "BNB", "WETH"];
-const COIN_SYMBOLS = ["APT", "BTC", "ETH", "SOL", "SUI", "BNB", "WETH"];
+
+
 const COINGECKO_IDS = ["aptos", "bitcoin", "ethereum", "solana", "sui", "binancecoin", "weth"];
 const COIN_SYMBOL_MAP: Record<string, string> = {
   aptos: "APT",
@@ -50,36 +47,60 @@ const TABS = [
   { key: "7d", label: "7d", field: "price_change_percentage_7d_in_currency" },
 ];
 
+// Define Coin and Event interfaces
+interface Coin {
+  id: string;
+  symbol: string;
+  current_price: number;
+  price_change_percentage_1h_in_currency?: number;
+  price_change_percentage_24h_in_currency?: number;
+  price_change_percentage_7d_in_currency?: number;
+}
+interface CoinMarketCalEvent {
+  id: string;
+  title: { en?: string } | string;
+  categories?: { id: string; name: string }[];
+  displayed_date?: string;
+  date_event?: string;
+  date?: string;
+  coins?: { fullname: string }[];
+  created_date?: string;
+  proof?: string;
+  source?: string;
+}
+
 const News: React.FC = () => {
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [marketCoins, setMarketCoins] = useState<any[]>([]);
-  const [selectedTab, setSelectedTab] = useState<"1h" | "24h" | "7d">("24h");
-  const [events, setEvents] = useState<any[]>([]);
+  const [marketCoins, setMarketCoins] = useState<Coin[]>([]);
+  const [selectedTab, setSelectedTab] = useState<'1h' | '24h' | '7d'>('24h');
+  const [events, setEvents] = useState<CoinMarketCalEvent[]>([]);
   const [eventError, setEventError] = useState<string | null>(null);
   const toast = useToast();
   const newsService = NewsService.getInstance();
 
-  // --- Fetch News (API cũ) ---
-  const fetchNews = async () => {
+  // --- Fetch News  ---
+  const fetchNews = useCallback(async () => {
     setLoading(true);
     try {
       const newsData = await newsService.fetchCryptoNews(30);
       setNews(newsData);
       setLastUpdated(new Date());
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to fetch news. Please try again.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        toast({
+          title: "Error",
+          description: "Failed to fetch news. Please try again.",
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+        });
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [newsService, toast]);
 
   // --- Fetch CoinGecko Market Data ---
   const fetchMarketCoins = async () => {
@@ -87,10 +108,14 @@ const News: React.FC = () => {
       const ids = COINGECKO_IDS.join(",");
       const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&price_change_percentage=1h,24h,7d`;
       const res = await fetch(url);
-      const data = await res.json();
+      const data: Coin[] = await res.json();
       setMarketCoins(data);
-    } catch (error) {
-      setMarketCoins([]);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        setMarketCoins([]);
+        // Optionally log error
+        // setError(typeof error === 'string' ? error : 'Failed to fetch market coins');
+      }
     }
   };
 
@@ -111,9 +136,15 @@ const News: React.FC = () => {
         return;
       }
       setEvents(data.body);
-    } catch (error: any) {
-      setEventError("API request failed: " + (error?.message || error));
-      setEvents([]);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        let message = 'API request failed';
+        if (e.message) {
+          message += ': ' + e.message;
+        }
+        setEventError(message);
+        setEvents([]);
+      }
     }
   };
 
@@ -121,7 +152,7 @@ const News: React.FC = () => {
     fetchNews();
     fetchMarketCoins();
     fetchEvents();
-  }, []);
+  }, [fetchNews]);
 
   const formatTimeAgo = (dateString: string): string => {
     const date = new Date(dateString);
@@ -336,7 +367,7 @@ const News: React.FC = () => {
         flexDirection="column"
         gap={6}
       >
-        {/* Coin List (giống bảng bên phải hình) */}
+        {/* Coin List  */}
         <Card
           bg="dark.800"
           borderRadius="2xl"
@@ -361,7 +392,7 @@ const News: React.FC = () => {
                   </Button>
                 ))}
               </Flex>
-              {marketCoins.map((coin) => (
+              {marketCoins.map((coin: Coin) => (
                 <Flex
                   key={coin.id}
                   align="center"
@@ -374,31 +405,31 @@ const News: React.FC = () => {
                     color={COIN_SYMBOL_MAP[coin.id] === "MC" ? "gold" : "white"}
                     fontWeight="bold"
                   >
-                    {COIN_SYMBOL_MAP[coin.id] || coin.symbol.toUpperCase()}
+                    {COIN_SYMBOL_MAP[coin.id] || coin.symbol?.toUpperCase()}
                   </Box>
                   <Box minW="90px" color="white">
-                    ${coin.current_price.toLocaleString()}
+                    ${coin.current_price?.toLocaleString()}
                   </Box>
                   <Box
                     minW="60px"
                     fontWeight="bold"
                     color={
-                      coin[
-                        `price_change_percentage_${selectedTab}_in_currency`
-                      ] >= 0
-                        ? "#00ea00"
-                        : "#ff3a7a"
+                      typeof coin[`price_change_percentage_${selectedTab}_in_currency`] === 'number'
+                        ? (coin[`price_change_percentage_${selectedTab}_in_currency`] as number) >= 0
+                          ? "#00ea00"
+                          : "#ff3a7a"
+                        : Number(coin[`price_change_percentage_${selectedTab}_in_currency`]) >= 0
+                          ? "#00ea00"
+                          : "#ff3a7a"
                     }
                   >
-                    {coin[
-                      `price_change_percentage_${selectedTab}_in_currency`
-                    ] >= 0
-                      ? "+"
-                      : ""}
-                    {coin[`price_change_percentage_${selectedTab}_in_currency`]
-                      ? coin[
-                          `price_change_percentage_${selectedTab}_in_currency`
-                        ].toFixed(2)
+                    {typeof coin[`price_change_percentage_${selectedTab}_in_currency`] === 'number'
+                      ? (coin[`price_change_percentage_${selectedTab}_in_currency`] as number) >= 0 ? "+" : ""
+                      : Number(coin[`price_change_percentage_${selectedTab}_in_currency`]) >= 0 ? "+" : ""}
+                    {coin[`price_change_percentage_${selectedTab}_in_currency`] !== undefined
+                      ? (typeof coin[`price_change_percentage_${selectedTab}_in_currency`] === 'number'
+                          ? (coin[`price_change_percentage_${selectedTab}_in_currency`] as number).toFixed(2)
+                          : Number(coin[`price_change_percentage_${selectedTab}_in_currency`]).toFixed(2))
                       : "0.00"}
                     %
                   </Box>
@@ -453,7 +484,7 @@ const News: React.FC = () => {
               <Text color="gray.400">No events found.</Text>
             ) : (
               <VStack align="stretch" spacing={3}>
-                {events.map((event: any) => (
+                {events.map((event: CoinMarketCalEvent) => (
                   <Flex
                     key={event.id}
                     align="flex-start"
@@ -483,9 +514,9 @@ const News: React.FC = () => {
                         <Image
                           src={event.proof}
                           alt="event"
-                          boxSize="44px"
-                          borderRadius="md"
-                          objectFit="cover"
+                          width={44}
+                          height={44}
+                          style={{ borderRadius: '8px', objectFit: 'cover' }}
                         />
                       </Box>
                     )}
@@ -493,17 +524,16 @@ const News: React.FC = () => {
                       <Text
                         color="white"
                         fontWeight="bold"
-                        _hover={{
-                          textDecoration: "underline",
-                          color: "brand.400",
-                        }}
+                        _hover={{ textDecoration: "underline", color: "brand.400" }}
                       >
-                        {event.title?.en || event.title}
+                        {typeof event.title === 'object' && event.title !== null && 'en' in event.title
+                          ? (typeof event.title.en === 'string' ? event.title.en : '')
+                          : (typeof event.title === 'string' ? event.title : '')}
                       </Text>
                       {/* Category badge */}
                       {event.categories && event.categories.length > 0 && (
                         <HStack spacing={1} mb={1} mt={1}>
-                          {event.categories.map((cat: any) => (
+                          {event.categories.map((cat: { id: string; name: string }) => (
                             <Box
                               key={cat.id}
                               px={2}
@@ -524,7 +554,7 @@ const News: React.FC = () => {
                       </Text>
                       <Text color="gray.300" fontSize="sm">
                         {event.coins && event.coins.length > 0
-                          ? event.coins.map((c: any) => c.fullname).join(", ")
+                          ? event.coins.map((c: { fullname: string }) => c.fullname).join(", ")
                           : ""}
                       </Text>
                       {event.created_date && (

@@ -27,7 +27,7 @@ const formatPool = (value: string) => {
 const MarketInfo: React.FC<MarketInfoProps> = ({ assetLogo, pairName, strike, maturity, pool, fee, phase, phaseNames }) => (
   <Box display="flex" alignItems="center" mb={6}>
     <HStack>
-      <Image src={assetLogo} alt={pairName} boxSize="50px" mr={4} />
+      <Image src={assetLogo} alt={pairName} width={50} height={50} style={{ marginRight: 16 }} />
       <Box>
         <Heading size="md" fontSize="30px">
           <HStack>

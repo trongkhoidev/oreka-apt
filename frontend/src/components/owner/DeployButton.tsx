@@ -6,7 +6,7 @@ interface DeployButtonProps {
   isDeploying: boolean;
   deployContractWithCheck: () => void;
   progress: number;
-  signAndSubmitTransaction: any;
+  signAndSubmitTransaction: unknown;
 }
 
 const DeployButton: React.FC<DeployButtonProps> = ({ isDeploying, deployContractWithCheck, progress, signAndSubmitTransaction }) => (

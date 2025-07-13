@@ -72,10 +72,10 @@ function getTimeUnit(min: number, max: number) {
   return 'month';
 }
 
-const CACHE_DURATION = 5 * 60 * 1000; // 5 phút
+const CACHE_DURATION = 5 * 60 * 1000; 
 const priceCache: Record<string, { data: CoinGeckoCandle[]; timestamp: number }> = {};
 
-const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg = '#181A20', height = 400 }) => {
+const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, height = 400 }) => {
   const [interval, setInterval] = useState<IntervalValue>('24h');
   const [chartData, setChartData] = useState<CoinGeckoCandle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -96,7 +96,7 @@ const PriceChart: React.FC<PriceChartProps> = ({ binanceSymbol, coinGeckoId, bg 
       setIsLoading(false);
       return;
     }
-    fetchCoinGeckoHistory(coinGeckoId, cg as any)
+    fetchCoinGeckoHistory(coinGeckoId, cg as CoinGeckoInterval)
       .then(data => {
         if (isMounted && data.length > 0) {
           setChartData(data);

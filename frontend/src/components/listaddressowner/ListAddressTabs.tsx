@@ -16,7 +16,7 @@ interface ListAddressTabsProps {
 }
 
 const ListAddressTabs: React.FC<ListAddressTabsProps> = ({
-  tabList, filter, setFilter, pairFilter, setPairFilter, uniquePairs
+  tabList, setFilter, pairFilter, setPairFilter, uniquePairs
 }) => {
   return (
     <Box px={{ base: 4, md: 10 }} pt={2} pb={4} w="full">

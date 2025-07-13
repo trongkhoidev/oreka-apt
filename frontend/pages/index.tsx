@@ -5,6 +5,7 @@ import {
 import { FaRocket, FaLock, FaChartLine, FaBolt, FaArrowRight, FaShieldAlt, FaWallet, FaGithub, FaGlobe, FaCode } from 'react-icons/fa';
 import { getAvailableTradingPairs } from '../src/config/tradingPairs';
 import Head from 'next/head';
+import Image from 'next/image';
 
 const features = [
   { icon: FaLock, title: 'On-chain Security', desc: 'All markets are managed by Move smart contracts on Aptos.' },
@@ -127,10 +128,12 @@ const Home: React.FC = () => {
                   return (
                     <Tooltip key={token.pair} label={fullName} hasArrow>
                       <Box textAlign="center" minW="100px">
-                        <img
+                        <Image
                           src={`/images/${symbol.toLowerCase()}-logo.png`}
                           alt={token.pair}
-                          style={{ width: 80, height: 80, display: 'block', margin: '0 auto', marginBottom: 8, borderRadius: '50%' }}
+                          width={80}
+                          height={80}
+                          style={{ display: 'block', margin: '0 auto', marginBottom: 8, borderRadius: '50%' }}
                         />
                         <Text color="white" fontWeight="bold">{symbol}</Text>
                       </Box>

@@ -3,6 +3,7 @@ import { Box, Badge, Text, HStack, Flex, Icon } from '@chakra-ui/react';
 import { FaRegClock } from 'react-icons/fa';
 import { getMarketDetails } from '../../services/aptosMarketService';
 import { getStandardPairName } from '../../config/pairMapping';
+import Image from 'next/image';
 
 interface Market {
   creator: string;
@@ -33,10 +34,9 @@ interface ListAddressMarketCardProps {
   getMarketPhase: (market: Market) => string;
   getPhaseColor: (phase: string) => string;
   getStableIndex: (key: string, max: number) => number;
-  forceRefresh?: number | boolean; // Thêm prop này để trigger refetch khi cần
 }
 
-// Thêm hàm chọn màu theo coin
+
 function getStrikeColor(token: string) {
   switch (token.toUpperCase()) {
     case 'BTC': return '#FFD700'; 
@@ -53,17 +53,16 @@ function getStrikeColor(token: string) {
 const POLL_INTERVAL = 15000; // 15s
 
 const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
-  market, onClick, pairPrices, getMarketPhase, getPhaseColor, getStableIndex, forceRefresh
+  market, onClick, pairPrices, getMarketPhase, getPhaseColor, getStableIndex
 }) => {
   const [details, setDetails] = useState<Market | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  // Polling market detail mỗi 15s khi tab active
+
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
     let stopped = false;
     async function fetchRealtimeDetails() {
-      setLoading(true);
+      setDetails(null);
       const d = await getMarketDetails(market.market_address);
       if (stopped) return;
       if (d) {
@@ -89,7 +88,6 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
       } else {
         setDetails(null);
       }
-      setLoading(false);
     }
     fetchRealtimeDetails();
     function poll() {
@@ -98,9 +96,8 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
     }
     interval = setTimeout(poll, POLL_INTERVAL);
     return () => { stopped = true; if (interval) clearTimeout(interval); };
-  }, [market.market_address, forceRefresh]);
+  }, [market, setDetails]);
 
-  // Lấy dữ liệu ưu tiên từ details realtime, fallback sang props market
   const data = details || market;
   const long = Number(data.long_amount || 0);
   const short = Number(data.short_amount || 0);
@@ -161,13 +158,7 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
     biddingColor = '#B0B3B8';
   }
 
-  // Xác định trạng thái đặc biệt của bar
-  const isMaturity = phase === 'Maturity';
-  const isResolved = !!data.is_resolved;
-  const result = Number(data.result);
-  const isLongWin = isMaturity && isResolved && result === 0;
-  const isShortWin = isMaturity && isResolved && result === 1;
-  const isExpired = isMaturity && total === 0;
+
 
   const strikeColor = getStrikeColor(baseToken.toUpperCase());
   const strike = (data.strike_price / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -210,11 +201,12 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
     >
       {/* Image + Phase badge */}
       <Box position="relative" borderTopRadius="2xl" borderBottomLeftRadius="lg" borderBottomRightRadius="lg" overflow="hidden" h="52%" minH="160px" bg="#23262f">
-        <img
+        <Image
           src={imgSrc}
           alt={pairName}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }}
-          // Always fallback to coinbase.png if image not found
+          width={320}
+          height={160}
+          style={{ objectFit: 'cover' }}
           onError={e => { e.currentTarget.src = '/images/coinbase.png'; }}
         />
         <Badge position="absolute" top={2} left={2} fontSize="xs" px={3} py={1} borderRadius="md" zIndex={2} bg={phaseColor} color="#181A20" fontWeight="bold">
@@ -229,7 +221,7 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
           {/* --- Maturity phase, resolved: show LONG/SHORT win --- */}
           {phase === 'Maturity' && data.is_resolved && total > 0 && (
             (() => {
-              // Ưu tiên dùng result nếu có, nếu không thì so sánh final_price và strike_price
+              
               let show = null;
               if (typeof data.result === 'number' && (data.result === 0 || data.result === 1)) {
                 show = data.result === 0 ? 'LONG' : 'SHORT';
@@ -264,15 +256,15 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
               <Text color="#5FDCC6" fontWeight="bold" minW="36px" fontSize="sm" textAlign="right">{longPercent.toFixed(0)}%</Text>
               <Box flex={1} alignItems="center" w="100%" h="18px" borderRadius="full" bg="gray.800" position="relative" overflow="hidden" mb={1} p={0}
                 boxShadow="0 0 4px #f9f9f7, 0 0 2px  #ff3a7a77, inset 0 1px rgba(0,0,0,0.6)">
-                {/* Nếu 100% long */}
+               
                 {longPercent === 100 && (
                   <Box position="absolute" width={`100%`} bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" transition="width 0.6s ease" h="100%" left="0" top="0" zIndex={1} />
                 )}
-                {/* Nếu 100% short */}
+                
                 {shortPercent === 100 && (
                   <Box position="absolute" width={`100%`} bgGradient="linear(to-r, #FF6B81, #D5006D)" transition="width 0.6s ease" h="100%" left="0" top="0" zIndex={1} />
                 )}
-                {/* Nếu không phải 100% */}
+                
                 {longPercent > 0 && longPercent < 100 && (
                   <Box position="absolute" width={`${longPercent}%`} bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" transition="width 0.6s ease" h="100%" left="0" top="0" zIndex={1} />
                 )}
@@ -304,14 +296,13 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
   );
 };
 
-// Helper: build title giống như trên card
 export function getMarketCardTitle(market: Market): string {
   const pairName = getStandardPairName(market.pair_name || '') || '';
   const strike = (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const maturity = market.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
   return `${pairName} will reach $${strike} by ${maturity}?`;
 }
-// Helper: build logo src giống như trên card
+
 export function getMarketLogoSrc(market: Market): string {
   const pairName = getStandardPairName(market.pair_name || '') || '';
   let baseToken = '';

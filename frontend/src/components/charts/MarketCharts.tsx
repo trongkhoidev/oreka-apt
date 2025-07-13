@@ -79,7 +79,6 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   return <PositionChart 
     data={data} 
     height={height} 
-    marketAddress={marketAddress}
     biddingStartTime={biddingStartTime}
     biddingEndTime={biddingEndTime}
     currentTime={currentTime}

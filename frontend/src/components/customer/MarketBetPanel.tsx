@@ -1,7 +1,6 @@
 import { Box, HStack, Button, Flex, Text, FormControl, FormLabel, Input } from '@chakra-ui/react';
 import { FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import { useSpring, animated } from '@react-spring/web';
-import { FaCoins } from 'react-icons/fa';
 
 enum Phase { Pending = 0, Bidding = 1, Maturity = 2 }
 

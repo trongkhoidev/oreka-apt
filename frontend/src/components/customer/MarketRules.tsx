@@ -1,4 +1,4 @@
-import { Box, Flex, Heading, Icon, Text, UnorderedList, ListItem, Link } from '@chakra-ui/react';
+import { Box, Flex, Heading, Icon, Text, UnorderedList, ListItem } from '@chakra-ui/react';
 import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons';
 import type { MarketInfo as MarketInfoType } from '../../services/aptosMarketService';
 
@@ -36,15 +36,6 @@ const MarketRules: React.FC<MarketRulesProps> = ({ showRules, setShowRules, mark
         <Text color="gray.400" mb={3}>
           Your potential profit depends on the ratio between LONG and SHORT bids. If most users bet against your position, your potential profit increases. A fee of {fee}% is charged on winning positions.
         </Text>
-        <Box mt={4} p={3} borderRadius="md" border="1px solid" borderColor="gray.700">
-          <Flex align="center" fontSize="25px" fontWeight="bold">
-            <img src="/images/coinbase.png" alt="Coinbase" style={{ width: 50, height: 50, borderRadius: '50%', marginRight: 24 }} />
-            <Box>
-              <Text color="gray.400" fontSize="lg">Resolution Source</Text>
-              <Link color="blue.400" href="https://www.coinbase.com" isExternal>Coinbase</Link>
-            </Box>
-          </Flex>
-        </Box>
       </Box>
     )}
   </Box>

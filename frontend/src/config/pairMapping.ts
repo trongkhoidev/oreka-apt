@@ -21,7 +21,7 @@ const PAIR_TO_PRICE_FEED_ID: Record<string, string> = Object.fromEntries(
  * E.g. '0x3033...' => '03ae4d...'
  */
 function fromAsciiHex(hex: string): string {
-  let clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
   let str = '';
   for (let i = 0; i < clean.length; i += 2) {
     str += String.fromCharCode(parseInt(clean.substr(i, 2), 16));
@@ -36,21 +36,15 @@ function fromAsciiHex(hex: string): string {
  */
 export function getStandardPairName(input: string): string {
   if (!input) return '';
-  // Nếu là pair name
   if (input.includes('/')) return input.toUpperCase();
-  // Nếu là hex ascii (0x30... hoặc 30... dài 64 ký tự * 2)
   let normalized = input;
   if ((/^0x[0-9a-fA-F]{64,}$/.test(input) || /^[0-9a-fA-F]{64,}$/.test(input)) && input.length >= 64) {
     const decoded = fromAsciiHex(input);
-    // Nếu decode ra đúng 64 ký tự hex, dùng để tra mapping
     if (/^[0-9a-fA-F]{64}$/.test(decoded)) normalized = decoded;
     else normalized = decoded;
   }
-  // Nếu là price_feed_id chuẩn
   if (PRICE_FEED_ID_TO_PAIR[normalized]) return PRICE_FEED_ID_TO_PAIR[normalized];
-  // Fallback: thử tra mapping với input gốc nếu decode không ra
   if (PRICE_FEED_ID_TO_PAIR[input]) return PRICE_FEED_ID_TO_PAIR[input];
-  // Nếu là symbol (e.g. BTCUSDT)
   const found = Object.values(PRICE_FEED_ID_TO_PAIR).find(pair => pair.replace('/', '').toUpperCase() + 'T' === normalized.toUpperCase());
   if (found) return found;
   return '';

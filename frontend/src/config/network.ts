@@ -1,4 +1,4 @@
-import { Aptos, AptosConfig } from '@aptos-labs/ts-sdk';
+import { Aptos, AptosConfig, Network } from '@aptos-labs/ts-sdk';
 
 // Define a type for network configuration for better type safety
 export type AptosNetwork = typeof networkConfig.mainnet;
@@ -11,34 +11,38 @@ export const networkConfig = {
     faucetUrl: null,
     chainId: 1
   },
-  devnet: {
-    name: 'devnet',
-    nodeUrl: 'https://fullnode.devnet.aptoslabs.com/v1',
-    faucetUrl: 'https://faucet.devnet.aptoslabs.com',
-    chainId: 193
-  },
-  testnet: {
-    name: 'testnet', 
-    nodeUrl: 'https://fullnode.testnet.aptoslabs.com/v1',
-    faucetUrl: 'https://faucet.testnet.aptoslabs.com',
-    chainId: 2
-  },
+  
   
 };
 
 // Get current network based on environment
 export const getCurrentNetwork = () => {
+  const customNodeUrl = process.env.NEXT_PUBLIC_APTOS_NODE_URL;
+  if (customNodeUrl) {
+    return {
+      name: Network.CUSTOM,
+      nodeUrl: customNodeUrl,
+      faucetUrl: null,
+      chainId: 1 
+    };
+  }
   const network = process.env.NEXT_PUBLIC_APTOS_NETWORK || 'mainnet';
-  return networkConfig[network as keyof typeof networkConfig] || networkConfig.mainnet;
+  let networkName: Network = Network.MAINNET;
+  if (network === 'testnet') networkName = Network.TESTNET;
+  else if (network === 'devnet') networkName = Network.DEVNET;
+  else if (network === 'mainnet') networkName = Network.MAINNET;
+  return { ...networkConfig[network as keyof typeof networkConfig] || networkConfig.mainnet, name: networkName };
 };
 
 // Get Aptos client instance
 export const getAptosClient = () => {
   const network = getCurrentNetwork();
-  // Explicitly create the config with the nodeUrl from our configuration
-  // This avoids issues with SDK versions and ensures the correct endpoint is always used.
-  console.log('[getAptosClient] Using baseURL:', network.nodeUrl);
-  const config = new AptosConfig({ fullnode: network.nodeUrl });
+  let nodeUrl = network.nodeUrl;
+  if (!nodeUrl.endsWith('/v1')) {
+    nodeUrl = nodeUrl.replace(/\/+$/, '') + '/v1';
+  }
+  console.log('[getAptosClient] Using baseURL:', nodeUrl);
+  const config = new AptosConfig({ fullnode: nodeUrl, network: network.name });
   return new Aptos(config);
 };
 

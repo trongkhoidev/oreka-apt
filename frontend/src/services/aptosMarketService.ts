@@ -2,7 +2,6 @@
 import { BINARY_OPTION_MARKET_MODULE_ADDRESS } from '@/config/contracts';
 import { getAptosClient } from '../config/network';
 import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
-import { getPairNameFromPriceFeedId } from '@/config/tradingPairs';
 import { getStandardPairName } from '@/config/pairMapping';
 
 // Debug: Monkey-patch fetch to log stacktrace when calling /module/binary_option_market
@@ -343,7 +342,19 @@ export async function getMarketDetails(marketObjectAddress: string): Promise<Mar
         if (!response.ok) {
           throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
         }
-        const resource = await response.json();
+
+        const text = await response.text();
+        if (!text) {
+          console.warn('[getMarketDetails] Empty response body:', url);
+          return null;
+        }
+        let resource;
+        try {
+          resource = JSON.parse(text);
+        } catch (e) {
+          console.error('[getMarketDetails] Failed to parse JSON:', e, text);
+          return null;
+        }
         if (!resource || !resource.data) {
           throw new Error(`Market resource not found for address: ${marketObjectAddress}`);
         }
@@ -392,7 +403,7 @@ export async function bid(
     marketAddress: string, 
     prediction: boolean, 
     amount: number,
-    timestampBid: number // thêm tham số này
+    timestampBid: number 
 ): Promise<string> {
     // Convert amount to octas (1 APT = 1e8 octas)
     const amountInOctas = Math.floor(amount * 1e8);
@@ -419,7 +430,7 @@ export async function claim(
         data: {
             function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::claim`,
             typeArguments: [],
-            functionArguments: [marketAddress], // chỉ truyền 1 argument
+            functionArguments: [marketAddress], 
         }
     };
     const response = await signAndSubmitTransaction(transaction);
@@ -465,7 +476,7 @@ export async function withdrawFee(
         data: {
             function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::withdraw_fee`,
             typeArguments: [],
-            functionArguments: [marketAddress], // chỉ truyền 1 argument
+            functionArguments: [marketAddress], 
         }
     };
     const response = await signAndSubmitTransaction(transaction);

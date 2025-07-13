@@ -40,7 +40,6 @@ export const formatSymbolForAPI = (symbol: string): string => {
   return symbol.replace('/', '-').toUpperCase();
 };
 
-// Hàm trả về danh sách các cặp trading mặc định
 export function getAvailableTradingPairs(): TradingPairInfo[] {
   return [
     { pair: 'APT/USD', symbol: 'APTUSDT', priceFeedId: '03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5' },
@@ -53,7 +52,6 @@ export function getAvailableTradingPairs(): TradingPairInfo[] {
   ];
 }
 
-// Hàm lấy thông tin trading pair từ pair name
 export function getTradingPairInfo(pairName: string): TradingPairInfo | undefined {
   return getAvailableTradingPairs().find(pair => pair.pair === pairName);
 } 

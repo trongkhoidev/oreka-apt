@@ -1,5 +1,3 @@
-import { getCurrentNetwork } from '../config/network';
-import { BINARY_OPTION_MARKET_MODULE_ADDRESS } from '../config/contracts';
 
 export interface BidEvent {
   data: {
@@ -40,7 +38,7 @@ export async function getMarketBidEvents(marketAddress: string): Promise<BidEven
       }
     }
     return filtered;
-  } catch (e) {
+  } catch {
     return [];
   }
 }
@@ -77,7 +75,7 @@ export function buildPositionTimeline(
     const t = e.timestamp ?? (e.data.timestamp_bid ? Number(e.data.timestamp_bid) * 1000 : Number(e.version));
     timeline.push({ time: t, long, short });
   }
-  // Thêm điểm cuối: luôn là currentTime nếu currentTime < biddingEndTime, ngược lại là biddingEndTime
+
   const last = timeline[timeline.length - 1];
   if (currentTime < biddingEndTime) {
     if (last.time < currentTime) {
@@ -88,6 +86,6 @@ export function buildPositionTimeline(
       timeline.push({ ...last, time: biddingEndTime });
     }
   }
-  // Loại bỏ duplicate time liên tiếp
+
   return timeline.filter((pt, idx, arr) => idx === 0 || pt.time !== arr[idx - 1].time);
 } 

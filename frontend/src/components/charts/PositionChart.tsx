@@ -1,3 +1,4 @@
+/* eslint-disable react/display-name */
 import React from 'react';
 import { Box, Text, HStack, Flex, VStack } from '@chakra-ui/react';
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine } from 'recharts';
@@ -17,14 +18,9 @@ interface PositionChartProps {
   currentTime?: number;
 }
 
-const PositionChart: React.FC<PositionChartProps> = ({
-  data,
-  height = 400,
-  biddingStartTime,
-  biddingEndTime,
-  currentTime: propCurrentTime
-}) => {
-  // Dùng currentTime truyền vào hoặc Date.now()
+const PositionChart = (props: PositionChartProps) => {
+  const { data, height = 400, biddingStartTime, biddingEndTime, currentTime: propCurrentTime } = props;
+
   const [realtime, setRealtime] = React.useState(Date.now());
   React.useEffect(() => {
     if (!biddingEndTime || (propCurrentTime && propCurrentTime >= biddingEndTime)) return;
@@ -35,7 +31,7 @@ const PositionChart: React.FC<PositionChartProps> = ({
   }, [biddingEndTime, propCurrentTime]);
   const effectiveCurrentTime = typeof propCurrentTime === 'number' ? propCurrentTime : realtime;
 
-  // Chuẩn hóa data cho chart
+
   const chartData = React.useMemo(() => {
     if (data && data.length > 0) {
       // Sort by time ascending
@@ -52,7 +48,7 @@ const PositionChart: React.FC<PositionChartProps> = ({
           unique[unique.length - 1] = sorted[i];
         }
       }
-      // Thêm điểm realtime cuối cùng nếu đang trong bidding
+     
       let extended = unique;
       if (biddingEndTime && effectiveCurrentTime < biddingEndTime) {
         const last = unique[unique.length - 1];
@@ -70,11 +66,11 @@ const PositionChart: React.FC<PositionChartProps> = ({
         };
       });
     }
-    // Nếu không có data, trả về 1 điểm 50/50 tại currentTime
+    
     return [{ time: effectiveCurrentTime, longPercent: 50, shortPercent: 50, total: 0 }];
   }, [data, effectiveCurrentTime, biddingEndTime]);
 
-  // Lấy giá trị cuối cùng để hiển thị
+ 
   const last = chartData[chartData.length - 1];
 
   // Legend
@@ -126,8 +122,8 @@ const PositionChart: React.FC<PositionChartProps> = ({
     return null;
   };
 
-  // Dot cuối cùng (realtime)
-  const AlwaysShowDot = (color: string) => (props: { cx?: number; cy?: number; index?: number; data?: any[] }) => {
+
+  const AlwaysShowDot = (color: string) => (props: { cx?: number; cy?: number; index?: number; data?: PositionPoint[] }) => {
     const { cx, cy, index = 0, data = [] } = props;
     if (index === data.length - 1) {
       return (
@@ -148,7 +144,7 @@ const PositionChart: React.FC<PositionChartProps> = ({
     return <g />;
   };
 
-  // Trục X: domain
+
   const getXAxisDomain = () => {
     if (biddingStartTime && biddingEndTime) {
       return [biddingStartTime, biddingEndTime];
@@ -156,7 +152,7 @@ const PositionChart: React.FC<PositionChartProps> = ({
     return ['dataMin', 'dataMax'];
   };
 
-  // Trục X: format
+  
   const getTimelineTickFormatter = () => {
     return (t: number) => format(new Date(t), 'MMM d HH:mm');
   };
@@ -232,5 +228,7 @@ const PositionChart: React.FC<PositionChartProps> = ({
     </Box>
   );
 };
+
+PositionChart.displayName = 'PositionChart';
 
 export default PositionChart; 

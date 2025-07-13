@@ -3,7 +3,7 @@ import { Box, Heading, VStack, HStack, Text, Icon } from '@chakra-ui/react';
 import { FaArrowUp, FaArrowDown } from 'react-icons/fa';
 
 interface PreviewBoxProps {
-  selectedPair: any;
+  selectedPair: { pair: string } | null;
   strikePrice: string;
   priceChange: number | null;
   currentPrice: number | null;

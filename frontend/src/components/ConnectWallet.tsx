@@ -9,7 +9,6 @@ import {
   MenuItem,
   Box,
   Image,
-  Icon,
   Spinner,
 } from "@chakra-ui/react";
 import React, { useEffect, useState, useCallback, createContext } from "react";
@@ -115,7 +114,7 @@ export default function ConnectWallet() {
           bg="#181A20"
           border="1px solid #23262f"
         >
-          {wallet && <Image src={wallet.icon} alt={wallet.name} boxSize="28px" />}
+          {wallet && <Image src={wallet.icon} alt={wallet.name} width={6} height={6} />}
           <Text
             fontWeight="bold"
             color="white"
