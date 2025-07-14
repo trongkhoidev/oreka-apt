@@ -12,6 +12,11 @@ module yugo::binary_option_market {
     use aptos_framework::event::{Self, EventHandle};
     use aptos_framework::account;
 
+    // Pyth imports
+    use pyth::pyth;
+    use pyth::price::Price;
+    use pyth::price_identifier;
+
     /// The bid placed by a user.
     struct Bid has store, copy, drop {
         long_amount: u64,
@@ -244,8 +249,6 @@ module yugo::binary_option_market {
             bidding_end_time,
             maturity_time,
         });
-
-
     }
 
     /// Get the current phase of the market.
@@ -312,25 +315,37 @@ module yugo::binary_option_market {
             market_address: market_addr,
             timestamp_bid,
         });
-
-
     }
 
     /// Resolves the market using Pyth oracle. Can be called by anyone after maturity_time, only once.
+    /// pyth_price_update: lấy từ off-chain (Hermes), truyền vào để cập nhật giá mới nhất.
     public entry fun resolve_market(
         caller: &signer, 
         market_addr: address, 
-        final_price: u64, 
-        result: u8
+        pyth_price_update: vector<vector<u8>>
     ) acquires Market, MarketRegistry {
         let market = borrow_global_mut<Market>(market_addr);
-        
+
         let now = timestamp::now_seconds();
         assert!(!market.is_resolved, EMARKET_RESOLVED);
         assert!(now >= market.maturity_time, EMARKET_NOT_RESOLVED);
-        assert!(result == 0 || result == 1, 9004); // Invalid result: must be 0 (long) or 1 (short)
-        assert!(final_price > 0, 9005); // Final price must be positive
-        
+
+        // Update Pyth price feeds on-chain
+        let coins = coin::withdraw<AptosCoin>(caller, pyth::get_update_fee(&pyth_price_update));
+        pyth::update_price_feeds(pyth_price_update, coins);
+
+        // get price_feed_id from pyth_price_update
+        let price_id = price_identifier::from_byte_vec(market.price_feed_id.clone());
+        let price_struct = pyth::get_price(price_id);
+
+        assert!(price_struct.price >= 0, 1003);
+
+        // standardize final price
+        let final_price = price_struct.price as u64;
+
+        // define the outcome
+        let result = if (final_price >= market.strike_price) { 0 } else { 1 };
+
         // Set market as resolved
         market.is_resolved = true;
         market.final_price = final_price;
@@ -343,8 +358,6 @@ module yugo::binary_option_market {
             final_price,
             result,
         });
-
-
     }
 
     /// Allows a user to claim their winnings or refund.
@@ -401,8 +414,6 @@ module yugo::binary_option_market {
             amount: claim_amount,
             won,
         });
-
-
     }
 
     /// Allows the owner to withdraw the fee after the market is resolved.
@@ -427,8 +438,6 @@ module yugo::binary_option_market {
             owner: signer::address_of(owner),
             amount: fee,
         });
-
-
     }
 
     // === View Functions ===
@@ -485,8 +494,6 @@ module yugo::binary_option_market {
             (0, 0)
         }
     }
-
-
 
     // === Market Registry View Functions ===
 
