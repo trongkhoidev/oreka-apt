@@ -190,22 +190,26 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
       }}
       onClick={onClick}
       position="relative"
-      minH="340px"
-      minW="280px"
-      maxW="330px"
+      minH="320px"
+      minW="260px"
+      maxW="320px"
       w="100%"
+      ml={1}
+      mr={2}
+      mt={2}
+      mb={2}
       display="flex"
       flexDirection="column"
       justifyContent="stretch"
       alignItems="stretch"
     >
       {/* Image + Phase badge */}
-      <Box position="relative" borderTopRadius="2xl" borderBottomLeftRadius="lg" borderBottomRightRadius="lg" overflow="hidden" h="52%" minH="160px" bg="#23262f">
+      <Box position="relative" borderTopRadius="2xl" borderBottomLeftRadius="lg" borderBottomRightRadius="lg" overflow="hidden" h="45%" minH="160px" bg="#23262f">
         <Image
           src={imgSrc}
           alt={pairName}
-          width={320}
-          height={160}
+          width={300}
+          height={180}
           style={{ objectFit: 'cover' }}
           onError={e => { e.currentTarget.src = '/images/coinbase.png'; }}
         />

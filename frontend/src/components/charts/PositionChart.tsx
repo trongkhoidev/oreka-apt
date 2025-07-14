@@ -123,6 +123,7 @@ const PositionChart = (props: PositionChartProps) => {
   };
 
 
+  // Always show dot at last point during bidding
   const AlwaysShowDot = (color: string) => (props: { cx?: number; cy?: number; index?: number; data?: PositionPoint[] }) => {
     const { cx, cy, index = 0, data = [] } = props;
     if (index === data.length - 1) {
@@ -203,7 +204,7 @@ const PositionChart = (props: PositionChartProps) => {
               />
             )}
             <Line
-              type="stepAfter"
+              type="monotone"
               dataKey="longPercent"
               stroke="#00E1D6"
               strokeWidth={3}
@@ -213,7 +214,7 @@ const PositionChart = (props: PositionChartProps) => {
               animationEasing="ease-out"
             />
             <Line
-              type="stepAfter"
+              type="monotone"
               dataKey="shortPercent"
               stroke="#FF6B81"
               strokeWidth={3}

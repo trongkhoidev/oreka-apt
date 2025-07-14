@@ -40,6 +40,7 @@ interface Market {
   fee_withdrawn: boolean;
   _key?: string;
   market_address: string;
+  created_at?: number; // Added for sorting
 }
 
 const ListAddressOwner: React.FC = () => {
@@ -52,7 +53,7 @@ const ListAddressOwner: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'my' | 'active' | 'resolved' | 'holdings'>('all');
   const [pairFilter, setPairFilter] = useState('');
   const [page, setPage] = useState(1);
-  const contractsPerPage = 9;
+  const contractsPerPage = 16;
   const [marketDetails] = useState<Record<string, unknown[] | null>>({});
   const [pairPrices, setPairPrices] = useState<Record<string, number>>({});
   
@@ -67,7 +68,25 @@ const ListAddressOwner: React.FC = () => {
     { label: 'My Holdings', value: 'holdings' },
   ];
   const allowedPairs = useMemo(() => getAvailableTradingPairs().map(p => p.pair), []);
-  const uniquePairs = useMemo(() => Array.from(new Set(markets.map(m => m.pair_name))).filter(pair => allowedPairs.includes(pair)), [markets, allowedPairs]);
+  // My Holdings filter state
+  const [myHoldingsLoading, setMyHoldingsLoading] = useState(false);
+  const [myHoldingsMarkets, setMyHoldingsMarkets] = useState<Market[]>([]);
+
+  // uniquePairs chỉ lấy từ danh sách contracts của current tab
+  const uniquePairs = useMemo(() => {
+    let source: Market[] = markets;
+    if (filter === 'holdings') {
+      source = myHoldingsMarkets;
+    } else if (filter === 'my') {
+      source = markets.filter(market => market.creator.toLowerCase() === walletAddress.toLowerCase());
+    } else if (filter === 'active') {
+      const now = Math.floor(Date.now() / 1000);
+      source = markets.filter(market => now >= market.bidding_start_time && now < market.bidding_end_time && !market.is_resolved);
+    } else if (filter === 'resolved') {
+      source = markets.filter(market => market.is_resolved);
+    }
+    return Array.from(new Set(source.map(m => m.pair_name)));
+  }, [filter, markets, myHoldingsMarkets, walletAddress]);
 
   const marketsCache = React.useRef<Record<string, Market[]>>({});
 
@@ -75,16 +94,24 @@ const ListAddressOwner: React.FC = () => {
   useEffect(() => {
     setLoading(true);
     const debouncedFetch = debounce(async () => {
-      if (marketsCache.current[filter]) {
-        setMarkets(marketsCache.current[filter]);
-        setLoading(false);
-        return;
+      // Check localStorage cache
+      const cacheKey = 'allMarketsCache';
+      const cache = localStorage.getItem(cacheKey);
+      if (cache) {
+        try {
+          const { data, ts } = JSON.parse(cache);
+          if (Array.isArray(data) && Date.now() - ts < 5 * 60 * 1000) { // 5 phút
+            setMarkets(data);
+            setLoading(false);
+            return;
+          }
+        } catch {}
       }
       try {
         const marketInfos: { market_address: string; owner: string; pair_name: string; strike_price: string; fee_percentage: string; total_bids: string; long_bids: string; short_bids: string; total_amount: string; long_amount: string; short_amount: string; result: string; is_resolved: boolean; bidding_start_time: string; bidding_end_time: string; maturity_time: string; final_price: string; fee_withdrawn: boolean }[] = await getAllMarkets();
         if (!marketInfos || marketInfos.length === 0) {
           setMarkets([]);
-          marketsCache.current[filter] = [];
+          localStorage.setItem(cacheKey, JSON.stringify({ data: [], ts: Date.now() }));
           setLoading(false);
           return;
         }
@@ -121,14 +148,15 @@ const ListAddressOwner: React.FC = () => {
             fee_withdrawn: typeof d === 'object' && d !== null && 'fee_withdrawn' in d ? Boolean((d as { fee_withdrawn?: boolean }).fee_withdrawn) : false,
             _key: typeof d === 'object' && d !== null && 'market_address' in d ? (d as { market_address?: string }).market_address || '' : '',
             market_address: typeof d === 'object' && d !== null && 'market_address' in d ? (d as { market_address?: string }).market_address || '' : '',
+            created_at: typeof d === 'object' && d !== null && 'created_at' in d ? Number((d as { created_at?: string | number }).created_at) || 0 : 0,
           };
         });
         setMarkets(marketsData);
-        marketsCache.current[filter] = marketsData;
+        localStorage.setItem(cacheKey, JSON.stringify({ data: marketsData, ts: Date.now() }));
       } catch (error) {
         console.error('[ListAddressOwner] Error fetching markets:', error);
         setMarkets([]);
-        marketsCache.current[filter] = [];
+        localStorage.setItem(cacheKey, JSON.stringify({ data: [], ts: Date.now() }));
       } finally {
         setLoading(false);
       }
@@ -147,10 +175,6 @@ const ListAddressOwner: React.FC = () => {
     if (now >= market.maturity_time && !market.is_resolved) return 'Maturity';
     return 'Unknown';
   }
-
-  // My Holdings filter state
-  const [myHoldingsLoading, setMyHoldingsLoading] = useState(false);
-  const [myHoldingsMarkets, setMyHoldingsMarkets] = useState<Market[]>([]);
 
   // Fetch My Holdings when needed (robust, always after markets are fetched)
   useEffect(() => {
@@ -215,8 +239,8 @@ const ListAddressOwner: React.FC = () => {
       });
     } else if (filter === 'my') {
       filtered = filtered.filter(market => market.creator.toLowerCase() === walletAddress.toLowerCase());
-    } else if (filter === 'holdings') {
-      filtered = [];
+    } else if(filter === 'holdings'){
+      filtered = filtered.filter(market => myHoldingsMarkets.includes(market));
     }
     setFilteredMarkets(filtered);
   }, [markets, searchTerm, filter, walletAddress, allowedPairs, marketDetails]);
@@ -225,6 +249,11 @@ const ListAddressOwner: React.FC = () => {
   const filtered = filter === 'holdings'
     ? myHoldingsMarkets.filter(m => !pairFilter || m.pair_name === pairFilter)
     : filteredMarkets.filter(market => !pairFilter || market.pair_name === pairFilter);
+
+  const sorted = [...filtered].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+
+  const totalPages = Math.ceil(sorted.length / contractsPerPage);
+  const paginatedMarkets = sorted.slice((page - 1) * contractsPerPage, page * contractsPerPage);
 
   // Polling fetch price for all unique trading pairs every 20s
   useEffect(() => {
@@ -273,9 +302,6 @@ const ListAddressOwner: React.FC = () => {
     };
   }, [markets]);
 
-  const totalPages = Math.ceil(filtered.length / contractsPerPage);
-  const paginatedMarkets = filtered.slice((page - 1) * contractsPerPage, page * contractsPerPage);
-
   useEffect(() => {
     return () => {
       console.log('ListAddressOwner component unmounting');
@@ -300,18 +326,19 @@ const ListAddressOwner: React.FC = () => {
     return (Math.abs(hash) % max) + 1;
   }
 
+  useEffect(() => {
+    const pageFromUrl = Number(router.query.page || 1);
+    if (pageFromUrl !== page) {
+      setPage(pageFromUrl > 0 ? pageFromUrl : 1);
+    }
+  }, [router.query.page]);
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    router.push(`/listaddress/${newPage}`, undefined, { shallow: true });
+  };
 
 
-  if (!connected) {
-    return (
-      <Container maxW="container.xl" py={8}>
-        <VStack spacing={6} align="center">
-          <Heading mb={2} color="white">Market Directory</Heading>
-          <Text color="dark.300">Please connect your wallet to view your markets.</Text>
-        </VStack>
-      </Container>
-    );
-  }
 
   return (
     <Flex minH="100vh" bg="dark.900">
@@ -326,7 +353,7 @@ const ListAddressOwner: React.FC = () => {
           uniquePairs={uniquePairs}
         />
         {/* Main Grid + Pagination */}
-        <Flex direction="column" flex={1} minH={0} px={{ base: 2, md: 10 }}>
+        <Flex direction="column"   flex={1} minH={0} px={{ base: 2, md: 2 }}>
           <Box flex={1} minH={0}>
             <Box bg="dark.800" borderRadius="lg" overflow="hidden" minH="400px">
               {loading || (filter === 'holdings' && myHoldingsLoading) ? (
@@ -361,9 +388,9 @@ const ListAddressOwner: React.FC = () => {
           </Box>
           {/* Pagination */}
           <Box mt={8} mb={4} textAlign="center">
-            <Button onClick={() => setPage(page - 1)} isDisabled={page <= 1} mr={2}>Previous</Button>
+            <Button onClick={() => handlePageChange(page - 1)} isDisabled={page <= 1} mr={2}>Previous</Button>
             <Text as="span" mx={2}>Page {page} / {totalPages}</Text>
-            <Button onClick={() => setPage(page + 1)} isDisabled={page >= totalPages}>Next</Button>
+            <Button onClick={() => handlePageChange(page + 1)} isDisabled={page >= totalPages}>Next</Button>
           </Box>
         </Flex>
       </Flex>

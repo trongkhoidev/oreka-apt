@@ -225,7 +225,11 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   }, [market?.pair_name]);
 
   // Derived values
-  const canResolve = phase === Phase.Maturity && !market?.is_resolved;
+  const maturityTimeMs = market?.maturity_time ? Number(market.maturity_time) * 1000 : 0;
+  const canResolve = phase === Phase.Maturity 
+    && !market?.is_resolved 
+    && maturityTimeMs > 0
+    && Date.now() >= maturityTimeMs;
   const long = market?.long_amount ? Number(market.long_amount) : 0;
   const short = market?.short_amount ? Number(market.short_amount) : 0;
   const total = market?.total_amount ? Number(market.total_amount) : long + short;
