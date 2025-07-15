@@ -14,7 +14,6 @@ module yugo::binary_option_market {
 
     // Pyth imports
     use pyth::pyth;
-    use pyth::price::Price;
     use pyth::price_identifier;
 
     /// The bid placed by a user.
@@ -101,7 +100,7 @@ module yugo::binary_option_market {
     struct MarketCreatedEvent has drop, store {
         creator: address,
         market_address: address,
-        price_feed_id: String,
+        price_feed_id: vector<u8>,
         strike_price: u64,
         fee_percentage: u64,
         bidding_start_time: u64,
@@ -242,7 +241,7 @@ module yugo::binary_option_market {
         event::emit_event(&mut registry.market_created_events, MarketCreatedEvent {
             creator: signer::address_of(creator),
             market_address,
-            price_feed_id: string::utf8(price_feed_id),
+            price_feed_id,
             strike_price,
             fee_percentage,
             bidding_start_time,
@@ -335,13 +334,9 @@ module yugo::binary_option_market {
         pyth::update_price_feeds(pyth_price_update, coins);
 
         // get price_feed_id from pyth_price_update
-        let price_id = price_identifier::from_byte_vec(market.price_feed_id.clone());
+        let price_id = price_identifier::from_byte_vec(market.price_feed_id);
         let price_struct = pyth::get_price(price_id);
-
-        assert!(price_struct.price >= 0, 1003);
-
-        // standardize final price
-        let final_price = price_struct.price as u64;
+        let final_price = yugo::pyth_price_adapter::unwrap_i64(pyth::price::get_price(&price_struct));
 
         // define the outcome
         let result = if (final_price >= market.strike_price) { 0 } else { 1 };
@@ -442,10 +437,28 @@ module yugo::binary_option_market {
 
     // === View Functions ===
 
+    /// Helper: convert vector<u8> to hex string
+    public fun vector_u8_to_hex(v: vector<u8>): std::string::String {
+    let hex_vec = vector::empty<u8>();
+    let i = 0;
+    let hex_chars = b"0123456789abcdef";
+    let len = vector::length(&v);
+    while (i < len) {
+        let byte = *vector::borrow(&v, i);
+        let high = ((byte >> 4) & 0xF) as u64;
+        let low = (byte & 0xF) as u64;
+        vector::push_back(&mut hex_vec, *vector::borrow(&hex_chars, high));
+        vector::push_back(&mut hex_vec, *vector::borrow(&hex_chars, low));
+        let low = (byte & 0xF) as u64;
+        i = i + 1;
+    };
+    std::string::utf8(hex_vec)
+}
+
     /// Get details of the market.
     public fun get_market_details(market_obj: Object<Market>): (
         address,
-        String,
+        std::string::String, // price_feed_id_hex
         u64, // strike_price
         u64, // fee_percentage
         u64, // total_bids
@@ -465,7 +478,7 @@ module yugo::binary_option_market {
         let market = borrow_global<Market>(market_address);
         (
             market.creator,
-            string::utf8(market.price_feed_id),
+            vector_u8_to_hex(market.price_feed_id),
             market.strike_price,
             market.fee_percentage,
             market.total_bids,
@@ -483,7 +496,7 @@ module yugo::binary_option_market {
         )
     }
 
-    /// Get the bid for a specific user (view, by address).
+    // Get the bid for a specific user (view, by address).
     #[view]
     public fun get_user_position(user: address, market_addr: address): (u64, u64) acquires Market {
         let market = borrow_global<Market>(market_addr);
@@ -497,7 +510,7 @@ module yugo::binary_option_market {
 
     // === Market Registry View Functions ===
 
-    /// Get all markets
+    // Get all markets
     #[view]
     public fun get_all_markets(): vector<MarketInfo> acquires MarketRegistry {
         let registry = borrow_global<MarketRegistry>(@yugo);
@@ -516,7 +529,7 @@ module yugo::binary_option_market {
         infos
     }
 
-    /// Get markets by owner
+    // Get markets by owner
     #[view]
     public fun get_markets_by_owner(owner: address): vector<MarketInfo> acquires MarketRegistry {
         let registry = borrow_global<MarketRegistry>(@yugo);
@@ -539,7 +552,7 @@ module yugo::binary_option_market {
         }
     }
 
-    /// Get owner's market count
+    // Get owner's market count
     #[view]
     public fun get_owner_market_count(owner: address): u64 acquires MarketRegistry {
         let registry = borrow_global<MarketRegistry>(@yugo);

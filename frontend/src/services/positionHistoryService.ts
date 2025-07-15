@@ -22,8 +22,8 @@ export interface BidEvent {
  */
 export async function getMarketBidEvents(marketAddress: string): Promise<BidEvent[]> {
   try {
-    // API event endpoint cố định theo hướng dẫn user
-    const url = "https://fullnode.mainnet.aptoslabs.com/v1/accounts/0xc921fc8dcdb4a3938115a7a198a16d60ab6fe17caefd2cbb36073c3a42f4aa69/events/0xc921fc8dcdb4a3938115a7a198a16d60ab6fe17caefd2cbb36073c3a42f4aa69::binary_option_market::MarketRegistry/bid_events";
+
+    const url = "https://fullnode.mainnet.aptoslabs.com/v1/accounts/0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d/events/0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d::binary_option_market::MarketRegistry/bid_events";
     const res = await fetch(url);
     if (!res.ok) return [];
     const allEvents: BidEvent[] = await res.json();

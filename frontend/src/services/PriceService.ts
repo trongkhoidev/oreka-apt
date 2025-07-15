@@ -47,27 +47,28 @@ export class PriceService {
   }
 
   /**
-   * Helper function to format symbol for APIs
-   * @param symbol - The symbol to format
-   * @returns The formatted symbol
+   * Helper function to format symbol for Coinbase API
+   * Chuyển từ SOLUSDT => SOL-USDT, APTUSDT => APT-USDT, ETHUSDT => ETH-USDT, v.v.
+   * @param symbol - The symbol to format (ex: SOLUSDT)
+   * @returns The formatted symbol (ex: SOL-USDT)
    */
   private formatSymbolForCoinbase(symbol: string): string {
-    // Only allow valid pairs
-    const allowedPairs = getAvailableTradingPairs().map(p => p.pair);
-    let formatted = symbol;
-    if (allowedPairs.includes(symbol)) {
-      formatted = symbol.replace('/', '-').toUpperCase();
+    const QUOTES = ['USDT', 'USD', 'BTC', 'ETH', 'BNB', 'EUR'];
+    for (const quote of QUOTES) {
+      if (symbol.endsWith(quote)) {
+        const base = symbol.slice(0, -quote.length).replace(/[-/]+$/, '');
+        return `${base}-${quote}`;
+      }
     }
-    return formatted;
+    return symbol;
   }
   
-  /**
-   * Helper function to format symbol for Binance API
-   * @param symbol - The symbol to format
-   * @returns The formatted symbol
-   */
   private formatSymbolForBinance(symbol: string): string {
-    return symbol.replace('-', '').replace('/', '');
+    if (/^[A-Z]{3,}USDT$/.test(symbol)) return symbol;
+    const match = symbol.match(/^([A-Z]{3,})[\/-]USDT$/i);
+    if (match) return `${match[1].toUpperCase()}USDT`;
+    if (/^[A-Z]{3,}USD$/.test(symbol)) return symbol + 'T';
+    return symbol.replace(/[^A-Za-z0-9]/g, '');
   }
 
   /**

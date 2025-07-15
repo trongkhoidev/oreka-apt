@@ -119,12 +119,13 @@ const Owner: React.FC = () => {
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
       const params = {
         pairName: getPriceFeedIdFromPairName(selectedPair.pair),
-        strikePrice: strikePriceInteger,
-        feePercentage: feeValue,
-        biddingStartTime: biddingStartTimestamp,
-        biddingEndTime: biddingEndTimestamp,
-        maturityTime: maturityTimestamp,
+        strikePrice: String(strikePriceInteger),
+        feePercentage: String(feeValue),
+        biddingStartTime: String(biddingStartTimestamp),
+        biddingEndTime: String(biddingEndTimestamp),
+        maturityTime: String(maturityTimestamp),
       };
+      console.log('[estimateGas] params:', params, 'selectedGasSpeed:', selectedGasSpeed);
       const estimate = await estimateDeployMarketGas(params, selectedGasSpeed);
       setGasEstimate(estimate);
     } catch (error: unknown) {
@@ -140,6 +141,13 @@ const Owner: React.FC = () => {
       estimateGas();
     }
   }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed, feePercentage, estimateGas]);
+
+  // Thêm log để debug gasEstimate khi thay đổi gas option
+  useEffect(() => {
+    if (gasEstimate) {
+      console.log('[Owner] gasEstimate updated:', gasEstimate, 'selectedGasSpeed:', selectedGasSpeed);
+    }
+  }, [gasEstimate, selectedGasSpeed]);
 
   const resetForm = () => {
     setStrikePrice('');
@@ -273,17 +281,7 @@ const Owner: React.FC = () => {
     return `${d}/${m} ${timeStr}`;
   }
 
-  if (!connected || !account) {
-    return (
-      <Container maxW="container.xl" py={10}>
-        <VStack spacing={4}>
-          <Heading color="white">Owner Dashboard</Heading>
-          <Text color="dark.300">Please connect your wallet to manage your markets.</Text>
-          <ConnectWallet />
-        </VStack>
-      </Container>
-    );
-  }
+
 
   return (
     <Box bg="#0A0B0F" minH="100vh" color="white">

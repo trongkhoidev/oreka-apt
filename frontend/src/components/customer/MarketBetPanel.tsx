@@ -120,10 +120,10 @@ const MarketBetPanel: React.FC<MarketBetPanelProps> = ({
           </Box>
         </Box>
       </Flex>
-      <Text fontSize="lg" fontWeight="bold" mb={3} mt={4} color="#FEDF56">My Position</Text>
+      <Text fontSize="lg" fontWeight="bold" mb={1} mt={3} color="#FEDF56">My Position</Text>
       {hasPosition ? (
         <>
-          <Flex justify="space-between" mb={2}>
+          <Flex justify="space-between" mb={1.5}>
             <Text color="green.400">LONG:</Text>
             <Text color="white">{(userPositions.long / 100000000).toFixed(4)} APT</Text>
           </Flex>

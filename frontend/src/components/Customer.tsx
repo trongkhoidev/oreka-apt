@@ -14,7 +14,7 @@ import MarketRules from './customer/MarketRules';
 import type { MarketInfo as MarketInfoType } from '../services/aptosMarketService';
 import ChartDataPrefetchService from '../services/ChartDataPrefetchService';
 import { getMarketBidEvents, buildPositionTimeline } from '../services/positionHistoryService';
-import { getStandardPairName, getPriceFeedIdFromPairName } from '../config/pairMapping';
+import { getStandardPairName } from '../config/pairMapping';
 import EventListenerService from '../services/EventListenerService';
 
 enum Side { Long, Short }
@@ -25,26 +25,6 @@ interface CustomerProps {
 }
 
 const phaseNames = ['Pending', 'Bidding', 'Maturity'];
-
-async function fetchFinalPriceFromHermes(pairName: string): Promise<number> {
-
-  const priceFeedId = getPriceFeedIdFromPairName(pairName);
-  if (!priceFeedId) throw new Error('No priceFeedId found for pair');
-  const url = `https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x${priceFeedId}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to fetch price from Hermes');
-  const data = await res.json();
-  const parsedArr = data.parsed || [];
-
-  const priceObj = parsedArr.find((p: { id: string; price: { price: number; expo: number } }) => (p.id || '').toLowerCase() === priceFeedId.toLowerCase());
-  if (!priceObj || !priceObj.price || typeof priceObj.price.price === 'undefined' || typeof priceObj.price.expo === 'undefined') {
-    throw new Error('No price found');
-  }
-  const price = Number(priceObj.price.price);
-  const expo = Number(priceObj.price.expo);
-  const realPrice = price * Math.pow(10, expo);
-  return Math.round(realPrice * 1e8); 
-}
 
 // Helper: format claimable amount with 2, 4, or 6 decimals
 const formatClaimAmount = (amount: number) => {
@@ -58,6 +38,15 @@ const formatClaimAmount = (amount: number) => {
 
   return apt.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 6 });
 };
+
+// Helper: decode base64 string sang mảng byte
+function base64ToBytes(base64: string): number[] {
+  // Xử lý base64 chuẩn, không cắt bỏ ký tự nào
+  const binary = atob(base64);
+  const arr = Array.from(binary, (char) => char.charCodeAt(0));
+  console.log('[base64ToBytes] base64 đầu:', base64.slice(0, 32), '... length:', base64.length, '-> bytes length:', arr.length, 'first bytes:', arr.slice(0, 8), 'last bytes:', arr.slice(-8));
+  return arr;
+}
 
 const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const { connected, account, signAndSubmitTransaction } = useWallet();
@@ -123,8 +112,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       else if (now < biddingStart) setPhase(Phase.Pending);
       else if (now >= biddingStart && now < biddingEnd) setPhase(Phase.Bidding);
       else setPhase(Phase.Maturity);
-      
-      // Always use getStandardPairName for all pair name conversions
+      // Always use getStandard
       const pairName = getStandardPairName(details.pair_name);
       setAssetLogo(`/images/${pairName.split('/')[0].toLowerCase()}-logo.png`);
     } catch (error) {
@@ -134,6 +122,20 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       setIsLoading(false);
     }
   }, [contractAddress, toast]);
+
+  // Polling market data only when chưa resolved
+  useEffect(() => {
+    if (!contractAddress) return;
+    let interval: NodeJS.Timeout | null = null;
+    const poll = async () => {
+      await fetchMarketData();
+    };
+    poll();
+    if (!market?.is_resolved) {
+      interval = setInterval(poll, 5000);
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [contractAddress, fetchMarketData, market?.is_resolved]);
 
   // Fetch position history for the market - build from BidEvents
   useEffect(() => {
@@ -235,7 +237,8 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const total = market?.total_amount ? Number(market.total_amount) : long + short;
   const longPercentage = total === 0 ? 50 : (long / total) * 100;
   const shortPercentage = total === 0 ? 50 : (short / total) * 100;
-  const pairName = market?.pair_name ? getStandardPairName(market.pair_name) : '';
+  const pairName = market?.pair_name || '';
+  const symbol = market?.symbol || '';
   const strike = market?.strike_price ? (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
   const maturity = market?.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
   const fee = market?.fee_percentage ? (Number(market.fee_percentage) / 10).toFixed(1) : '--';
@@ -317,17 +320,102 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
     setIsSubmitting(true);
     try {
+      // Detect chain (simple heuristic)
+      let chain = 'mainnet';
+      if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('testnet')) chain = 'testnet';
+      if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('devnet')) chain = 'devnet';
+      // get price_feed_id from market
+      let priceFeedId = market.price_feed_id;
+      if (Array.isArray(priceFeedId)) {
+        priceFeedId = priceFeedId.map((b: number) => b.toString(16).padStart(2, '0')).join('');
+      } else if (typeof priceFeedId === 'string' && priceFeedId.startsWith('0x')) {
+        priceFeedId = priceFeedId.slice(2);
+      }
+      if (typeof priceFeedId !== 'string' || priceFeedId.length !== 64) {
+        throw new Error('Invalid price_feed_id for Hermes');
+      }
+      // Mainnet price_feed_id ETH/USD
+      const mainnetETH = 'ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace';
 
-      const finalPrice = await fetchFinalPriceFromHermes(market.pair_name);
-
-      const strike = Number(market.strike_price);
-      let result = 2;
-      if (finalPrice >= strike) result = 0; // LONG win
-      else result = 1; // SHORT win
-      await resolveMarket(signAndSubmitTransaction, contractAddress, finalPrice, result);
-      toast({ title: 'Market resolve transaction submitted', status: 'success' });
-      fetchMarketData();
+      const testnetETH = '0x2f415e8b0c8c7c3d2e2ea02ca22964d784b339a9d46a02dd68d1718ff1cd58f0'.replace('0x','');
+      if (chain !== 'mainnet' && priceFeedId === mainnetETH) {
+        console.warn('[handleResolve] CẢNH BÁO: Bạn đang dùng price_feed_id mainnet trên', chain, '. Hãy dùng price_feed_id đúng của', chain, 'theo docs Pyth!');
+        toast({ title: 'Cảnh báo', description: 'Bạn đang dùng price_feed_id mainnet trên ' + chain + '. Hãy dùng đúng price_feed_id của ' + chain + '!', status: 'warning' });
+      }
+      if (chain === 'mainnet' && priceFeedId === testnetETH) {
+        console.warn('[handleResolve] CẢNH BÁO: Bạn đang dùng price_feed_id testnet/devnet trên mainnet. Hãy dùng price_feed_id mainnet!');
+        toast({ title: 'Cảnh báo', description: 'Bạn đang dùng price_feed_id testnet/devnet trên mainnet. Hãy dùng đúng price_feed_id mainnet!', status: 'warning' });
+      }
+      console.log('[handleResolve] priceFeedId for Hermes:', priceFeedId, 'chain:', chain);
+      // call Hermes API to get latest VAA (pyth_price_update)
+      const url = `https://hermes.pyth.network/api/latest_vaas?ids[]=${priceFeedId}`;
+      console.log('[handleResolve] Hermes URL:', url);
+      const res = await fetch(url);
+      const responseText = await res.text();
+      console.log('[handleResolve] Hermes raw response:', responseText);
+      if (!res.ok) throw new Error('Failed to fetch Pyth price update');
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('[handleResolve] Lỗi parse JSON từ Hermes:', e, responseText);
+        throw new Error('Hermes trả về dữ liệu không phải JSON');
+      }
+      // Kiểm tra từng nhánh, log rõ lý do reject
+      if (!data) {
+        console.warn('[handleResolve] data is falsy:', data);
+        toast({ title: 'Hermes không có VAA', description: 'Hermes trả về data rỗng!', status: 'error' });
+        throw new Error('No VAA data returned from Hermes (data falsy)');
+      }
+      if (!Array.isArray(data) && !Array.isArray(data.vaas)) {
+        console.warn('[handleResolve] data không phải là mảng hoặc có thuộc tính vaas:', data);
+        toast({ title: 'Hermes không có VAA', description: 'Hermes trả về dữ liệu không đúng định dạng!', status: 'error' });
+        throw new Error('No VAA data returned from Hermes (format)');
+      }
+      // Xử lý response Hermes có thể là mảng hoặc object có thuộc tính vaas
+      let vaas: string[] = [];
+      if (Array.isArray(data)) {
+        vaas = data;
+      } else if (data && Array.isArray(data.vaas)) {
+        vaas = data.vaas;
+      } else {
+        console.warn('[handleResolve] Không tìm thấy vaas hợp lệ trong response:', data);
+        toast({ title: 'Hermes không có VAA', description: 'Hermes trả về dữ liệu không đúng định dạng!', status: 'error' });
+        throw new Error('No VAA data returned from Hermes (format)');
+      }
+      if (!vaas.length || typeof vaas[0] !== 'string' || !vaas[0].length) {
+        console.warn('[handleResolve] vaas không hợp lệ:', vaas);
+        toast({ title: 'Hermes không có VAA', description: 'Hermes trả về vaas không hợp lệ!', status: 'error' });
+        throw new Error('No VAA data returned from Hermes (vaas invalid)');
+      }
+      console.log('[handleResolve][DEBUG] vaas:', vaas, 'length:', vaas.length, 'typeof vaas[0]:', typeof vaas[0], 'vaas[0] length:', vaas[0]?.length, 'vaas[0] value:', vaas[0]);
+      // Đảm bảo map trả về number[][]
+      const pythPriceUpdate: number[][] = vaas.map((vaa, idx) => {
+        const bytes = base64ToBytes(vaa);
+        console.log(`[handleResolve] VAA[${idx}] bytes length:`, bytes.length, 'first:', bytes.slice(0, 8), 'last:', bytes.slice(-8));
+        return bytes;
+      });
+      console.log('[handleResolve] contractAddress:', contractAddress);
+      console.log('[handleResolve] pythPriceUpdate count:', pythPriceUpdate.length);
+      pythPriceUpdate.forEach((arr, idx) => {
+        console.log(`[handleResolve] pythPriceUpdate[${idx}] length:`, arr.length, 'first:', arr.slice(0, 8), 'last:', arr.slice(-8));
+      });
+      console.log('[handleResolve] typeof pythPriceUpdate:', typeof pythPriceUpdate, 'isArray:', Array.isArray(pythPriceUpdate));
+      const totalBytes = pythPriceUpdate.reduce((sum, arr) => sum + arr.length, 0);
+      console.log('[handleResolve] total bytes:', totalBytes);
+      try {
+        await resolveMarket(signAndSubmitTransaction, contractAddress, pythPriceUpdate);
+        console.log('[handleResolve] resolveMarket SUCCESS');
+        toast({ title: 'Market resolve transaction submitted', status: 'success' });
+        const details = await getMarketDetails(contractAddress);
+        setMarket(details);
+        // fetchMarketData(); // Removed polling after successful resolve
+      } catch (err) {
+        console.error('[handleResolve] resolveMarket ERROR:', err);
+        throw err;
+      }
     } catch (error: unknown) {
+      console.error('[handleResolve] Resolve error:', error);
       toast({ title: 'Resolve failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
       setIsSubmitting(false);
@@ -522,7 +610,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
               </Flex>
 
               {/* Show Final Price in Maturity phase */}
-              {phase === Phase.Maturity && market?.is_resolved && market?.final_price && (
+              {phase === Phase.Maturity && market?.is_resolved && (
                 <Flex justify="space-between" align="center" mt={2}>
                   <HStack fontSize="20px">
                     <Text color="gray.400">Final Price:</Text>
@@ -534,7 +622,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 </Flex>
               )}
 
-              {phase === Phase.Maturity && market?.is_resolved && isWinner && (
+              {phase === Phase.Maturity && market?.is_resolved && isWinner && claimableAmount > 0 && (
                 <Button
                   onClick={handleClaim}
                   colorScheme="yellow"
@@ -550,8 +638,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                   Claim Rewards
                 </Button>
               )}
-              {/* Withdraw Fee button cho Owner */}
-              {phase === Phase.Maturity && canWithdrawFee && (
+              {phase === Phase.Maturity && canWithdrawFee && withdrawFeeAmount > 0 && (
                 <Button
                   onClick={handleWithdrawFee}
                   colorScheme="blue"

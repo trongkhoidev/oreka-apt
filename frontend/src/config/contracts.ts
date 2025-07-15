@@ -1,6 +1,6 @@
 // Aptos contract configuration for MAINNET
 // Update these addresses after deploying to mainnet!
-export const BINARY_OPTION_MARKET_MODULE_ADDRESS = "0xc921fc8dcdb4a3938115a7a198a16d60ab6fe17caefd2cbb36073c3a42f4aa69";
+export const BINARY_OPTION_MARKET_MODULE_ADDRESS = "0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d";
 export const BINARY_OPTION_MARKET_MODULE_NAME = "binary_option_market";
 
 // Network configuration (MAINNET)
@@ -9,7 +9,7 @@ export const APTOS_NODE_URL = process.env.NEXT_PUBLIC_APTOS_NODE_URL || 'https:/
 
 // Contract addresses for MAINNET
 export const DEPLOYED_ADDRESSES = {
-  binaryOptionMarket: "0xc921fc8dcdb4a3938115a7a198a16d60ab6fe17caefd2cbb36073c3a42f4aa69",
+  binaryOptionMarket: "0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d",
 };
 
 // Legacy factory address for backward compatibility (if needed)

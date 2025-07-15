@@ -33,18 +33,6 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   biddingEndTime,
   currentTime
 }) => {
-  console.log('📊 [MarketCharts] Received props:', {
-    chartSymbol,
-    strikePrice,
-    chartType,
-    dataLength: data?.length || 0,
-    height,
-    marketAddress,
-    biddingStartTime,
-    biddingEndTime,
-    currentTime,
-    dataSample: data?.slice(0, 3)
-  });
 
   if (chartType === 'price') {
     // Derive API symbols from trading pair info
@@ -59,7 +47,6 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     }
     const coinGeckoId = getCoinGeckoId(baseSymbol);
     if (!pairInfo || !coinGeckoId) {
-      console.warn('[MarketCharts] Asset not supported:', chartSymbol, 'pairInfo:', pairInfo, 'coinGeckoId:', coinGeckoId);
       return <div style={{height: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'red'}}>Asset not supported for price chart</div>;
     }
     return <PriceChart 
@@ -70,11 +57,6 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     />;
   }
   
-  // NOTE: The 'data' prop for PositionChart should be fetched using buildPositionHistoryFromEvents (GraphQL-backed) for accuracy and performance.
-  console.log('📈 [MarketCharts] Rendering PositionChart with data:', {
-    dataLength: data?.length || 0,
-    data: data
-  });
   
   return <PositionChart 
     data={data} 

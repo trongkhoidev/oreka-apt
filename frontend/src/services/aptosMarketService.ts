@@ -3,6 +3,7 @@ import { BINARY_OPTION_MARKET_MODULE_ADDRESS } from '@/config/contracts';
 import { getAptosClient } from '../config/network';
 import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
 import { getStandardPairName } from '@/config/pairMapping';
+import { getPairAndSymbolFromPriceFeedId } from '../config/tradingPairs';
 
 // Debug: Monkey-patch fetch to log stacktrace when calling /module/binary_option_market
 if (typeof window !== 'undefined' && window.fetch) {
@@ -41,6 +42,7 @@ export interface MarketInfo {
     fee_withdrawn: boolean;
     created_at: string;
     creator: string;
+    symbol?: string; // Added for pair_name mapping
 }
 
 export interface DeployMarketParams {
@@ -89,6 +91,14 @@ export const GAS_SPEED_DESCRIPTIONS = {
   [GasSpeed.INSTANT]: 'Highest priority, premium cost'
 };
 
+// Helper: chuẩn hóa và validate U64 string
+function safeU64String(val: any, name: string): string {
+  if (val === undefined || val === null || val === '' || isNaN(Number(val))) {
+    throw new Error(`[estimateDeployMarketGas] Invalid argument for ${name}: ${val}`);
+  }
+  return String(val);
+}
+
 /**
  * Simulate transaction to estimate gas fees
  */
@@ -98,40 +108,46 @@ export async function estimateDeployMarketGas(
 ): Promise<GasEstimate> {
   try {
     const aptos = getAptosClient();
-    
-    // Create transaction payload for simulation
+    let hex = params.pairName.startsWith('0x') ? params.pairName.slice(2) : params.pairName;
+    if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
+    const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
+    if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
+    // Chuẩn hóa và validate arguments
+    const args = [
+      priceFeedIdBytes,
+      safeU64String(params.strikePrice, 'strikePrice'),
+      safeU64String(params.feePercentage, 'feePercentage'),
+      safeU64String(params.biddingStartTime, 'biddingStartTime'),
+      safeU64String(params.biddingEndTime, 'biddingEndTime'),
+      safeU64String(params.maturityTime, 'maturityTime')
+    ];
+    console.log('[estimateDeployMarketGas] arguments:', args);
     const payload = {
       function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
       type_arguments: [],
-      arguments: [
-        params.pairName,
-        Number(params.strikePrice),
-        Number(params.feePercentage),
-        Number(params.biddingStartTime),
-        Number(params.biddingEndTime),
-        Number(params.maturityTime)
-      ]
+      arguments: args
     };
 
     // Use a reasonable default gas unit price for Aptos mainnet
-    // In a real app, you'd fetch this from the network
     const baseGasUnitPrice = 100; // Default gas unit price in octas for mainnet
-    
-    // Apply speed multiplier
     const adjustedGasUnitPrice = Math.floor(baseGasUnitPrice * GAS_SPEED_MULTIPLIERS[gasSpeed]);
 
-    // Simulate transaction using REST API directly, now with a guaranteed correct fullnode URL
+    // Build simulation payload
+    const simulationPayload = {
+      sender: "0x1",
+      payload: payload,
+      gas_unit_price: String(adjustedGasUnitPrice),
+      max_gas_amount: "1000000"
+    };
+    console.log('[estimateDeployMarketGas] simulationPayload:', simulationPayload);
+
+    // Simulate transaction using REST API directly
     const simulationResponse = await fetch(`${aptos.config.fullnode}/transactions/simulate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        sender: "0x1", // Use a dummy address for simulation
-        payload: payload,
-        gas_unit_price: adjustedGasUnitPrice.toString(),
-        max_gas_amount: "1000000", // Set a reasonable max gas limit
-      })
+      body: JSON.stringify(simulationPayload)
     });
 
     if (!simulationResponse.ok) {
@@ -218,20 +234,23 @@ export async function deployMarketWithGasSettings(
       maturityTime,
     } = params;
     
+    let hex = pairName.startsWith('0x') ? pairName.slice(2) : pairName;
+    if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
+    const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
+    if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
     // Get gas estimate for the selected speed
     const gasEstimate = await estimateDeployMarketGas(params, gasSpeed);
-    
     const transaction: InputTransactionData = {
       data: {
         function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
         typeArguments: [],
         functionArguments: [
-          pairName,
-          typeof strikePrice === 'string' ? parseInt(strikePrice, 10) : strikePrice,
-          typeof feePercentage === 'string' ? parseInt(feePercentage, 10) : feePercentage,
-          typeof biddingStartTime === 'string' ? parseInt(biddingStartTime, 10) : biddingStartTime,
-          typeof biddingEndTime === 'string' ? parseInt(biddingEndTime, 10) : biddingEndTime,
-          typeof maturityTime === 'string' ? parseInt(maturityTime, 10) : maturityTime
+          priceFeedIdBytes,
+          typeof strikePrice === 'string' ? strikePrice : String(strikePrice),
+          typeof feePercentage === 'string' ? feePercentage : String(feePercentage),
+          typeof biddingStartTime === 'string' ? biddingStartTime : String(biddingStartTime),
+          typeof biddingEndTime === 'string' ? biddingEndTime : String(biddingEndTime),
+          typeof maturityTime === 'string' ? maturityTime : String(maturityTime)
         ],
       }
     };
@@ -245,7 +264,9 @@ export async function deployMarketWithGasSettings(
     });
     
     const response = await signAndSubmitTransaction(transaction);
-    // If response is unknown, try to access hash safely
+    if (typeof response === 'string') {
+      return response;
+    }
     if (response && typeof response === 'object' && 'hash' in response) {
       return (response as { hash: string }).hash;
     }
@@ -265,29 +286,32 @@ export async function deployMarket(
 ): Promise<string> {
   try {
     const {
-      pairName,
+      pairName, // pairName ở đây là price_feed_id dạng hex string (64 ký tự)
       strikePrice,
       feePercentage,
       biddingStartTime,
       biddingEndTime,
       maturityTime,
     } = params;
-    
+
+    let hex = pairName.startsWith('0x') ? pairName.slice(2) : pairName;
+    if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
+    const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
+    if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
     const transaction: InputTransactionData = {
       data: {
         function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
         typeArguments: [],
         functionArguments: [
-            pairName,
-            typeof strikePrice === 'string' ? parseInt(strikePrice, 10) : strikePrice,
-            typeof feePercentage === 'string' ? parseInt(feePercentage, 10) : feePercentage,
-            typeof biddingStartTime === 'string' ? parseInt(biddingStartTime, 10) : biddingStartTime,
-            typeof biddingEndTime === 'string' ? parseInt(biddingEndTime, 10) : biddingEndTime,
-            typeof maturityTime === 'string' ? parseInt(maturityTime, 10) : maturityTime
+          priceFeedIdBytes,
+          typeof strikePrice === 'string' ? strikePrice : String(strikePrice),
+          typeof feePercentage === 'string' ? feePercentage : String(feePercentage),
+          typeof biddingStartTime === 'string' ? biddingStartTime : String(biddingStartTime),
+          typeof biddingEndTime === 'string' ? biddingEndTime : String(biddingEndTime),
+          typeof maturityTime === 'string' ? maturityTime : String(maturityTime)
         ],
       }
     };
-    
     const response = await signAndSubmitTransaction(transaction);
     // If response is unknown, try to access hash safely
     if (response && typeof response === 'object' && 'hash' in response) {
@@ -313,14 +337,37 @@ export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
     console.log('[getMarketsByOwner] payload:', payload);
     const result = await aptos.view({ payload });
     console.log('[getMarketsByOwner] result:', result);
-    return result && result[0] ? (result[0] as MarketInfo[]) : [];
+    if (result && result[0]) {
+      return (result[0] as MarketInfo[]).map(market => {
+        const { pair, symbol } = getPairAndSymbolFromPriceFeedId(market.price_feed_id || '');
+        return {
+          ...market,
+          pair_name: pair,
+          symbol,
+        };
+      });
+    }
+    return [];
   } catch (error) {
     console.error('[getMarketsByOwner] Error:', error);
     return [];
   }
 }
 
+// Thêm cache in-memory cho getMarketDetails
+const marketDetailsCache: Record<string, { data: any, ts: number, rateLimitedUntil?: number }> = {};
+
 export async function getMarketDetails(marketObjectAddress: string): Promise<MarketInfo | null> {
+  const now = Date.now();
+  // Nếu có cache và chưa hết hạn (3 phút), trả về luôn
+  if (marketDetailsCache[marketObjectAddress] && now - marketDetailsCache[marketObjectAddress].ts < 3 * 60 * 1000) {
+    return marketDetailsCache[marketObjectAddress].data;
+  }
+  // Nếu đang bị rate limit, không gọi lại
+  if (marketDetailsCache[marketObjectAddress]?.rateLimitedUntil && now < marketDetailsCache[marketObjectAddress].rateLimitedUntil) {
+    console.warn(`[getMarketDetails] Skipping fetch for ${marketObjectAddress} due to rate limit.`);
+    return marketDetailsCache[marketObjectAddress].data || null;
+  }
   try {
     const resourceType = `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::Market` as `${string}::${string}::${string}`;
     const baseUrl = 'https://fullnode.mainnet.aptoslabs.com/v1/accounts';
@@ -331,6 +378,11 @@ export async function getMarketDetails(marketObjectAddress: string): Promise<Mar
         const response = await fetch(url);
         if (response.status === 429) {
           console.warn('[getMarketDetails] Rate limited (429). Retrying after 2 minutes...');
+          marketDetailsCache[marketObjectAddress] = {
+            data: marketDetailsCache[marketObjectAddress]?.data || null,
+            ts: now,
+            rateLimitedUntil: now + 2 * 60 * 1000
+          };
           await new Promise(res => setTimeout(res, 2 * 60 * 1000));
           retryCount++;
           continue;
@@ -342,7 +394,6 @@ export async function getMarketDetails(marketObjectAddress: string): Promise<Mar
         if (!response.ok) {
           throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
         }
-
         const text = await response.text();
         if (!text) {
           console.warn('[getMarketDetails] Empty response body:', url);
@@ -359,11 +410,13 @@ export async function getMarketDetails(marketObjectAddress: string): Promise<Mar
           throw new Error(`Market resource not found for address: ${marketObjectAddress}`);
         }
         const market = resource.data;
-        return {
+        const { pair, symbol } = getPairAndSymbolFromPriceFeedId(market.price_feed_id || '');
+        const result: MarketInfo = {
           market_address: marketObjectAddress,
           owner: market.creator || '',
           creator: market.creator || '',
-          pair_name: getStandardPairName(market.price_feed_id || ''),
+          pair_name: pair,
+          symbol,
           strike_price: market.strike_price ? String(market.strike_price) : '0',
           fee_percentage: market.fee_percentage ? String(market.fee_percentage) : '0',
           bidding_start_time: market.bidding_start_time ? String(market.bidding_start_time) : '0',
@@ -382,6 +435,8 @@ export async function getMarketDetails(marketObjectAddress: string): Promise<Mar
           created_at: market.created_at ? String(market.created_at) : '0',
           price_feed_id: market.price_feed_id || '',
         };
+        marketDetailsCache[marketObjectAddress] = { data: result, ts: Date.now() };
+        return result;
       } catch (fetchError) {
         console.error('[getMarketDetails] Fetch error:', fetchError);
         retryCount++;
@@ -451,14 +506,13 @@ export async function claim(
 export async function resolveMarket(
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
     marketAddress: string,
-    finalPrice: number,
-    result: number
+    pythPriceUpdate: number[][]
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
             function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::resolve_market`,
             typeArguments: [],
-            functionArguments: [marketAddress, finalPrice.toString(), result.toString()],
+            functionArguments: [marketAddress, pythPriceUpdate],
         }
     };
     const response = await signAndSubmitTransaction(transaction);
@@ -498,7 +552,17 @@ export async function getAllMarkets(): Promise<MarketInfo[]> {
     console.log('[getAllMarkets] payload:', payload);
     const result = await aptos.view({ payload });
     console.log('[getAllMarkets] result:', result);
-    return result && result[0] ? (result[0] as MarketInfo[]) : [];
+    if (result && result[0]) {
+      return (result[0] as MarketInfo[]).map(market => {
+        const { pair, symbol } = getPairAndSymbolFromPriceFeedId(market.price_feed_id || '');
+        return {
+          ...market,
+          pair_name: pair,
+          symbol,
+        };
+      });
+    }
+    return [];
   } catch (error) {
     console.error('[getAllMarkets] Error:', error);
     return [];
@@ -560,4 +624,13 @@ export async function getUserBid(userAddress: string, marketAddress: string): Pr
   // fallback
   console.warn('[getUserBid] Fallback: No result or unexpected format', { result });
   return ['0', '0', false];
+} 
+
+export async function getMarketCount(): Promise<number> {
+  try {
+    const markets = await getAllMarkets();
+    return markets.length;
+  } catch (e) {
+    return 0;
+  }
 } 

@@ -14,7 +14,7 @@ import {  getAllMarkets, getMarketDetails } from '../services/aptosMarketService
 import { PriceService } from '../services/PriceService';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { useRouter } from 'next/router';
-import { getAvailableTradingPairs } from '../config/tradingPairs';
+import { getAvailableTradingPairs, getBinanceSymbolFromPairName, getPairNameFromPriceFeedId, getPairAndSymbolFromPriceFeedId } from '../config/tradingPairs';
 import ListAddressMarketCard from './listaddressowner/ListAddressMarketCard';
 import ListAddressTabs from './listaddressowner/ListAddressTabs';
 import { hasUserHoldings } from '../services/userHoldingsService';
@@ -127,28 +127,30 @@ const ListAddressOwner: React.FC = () => {
           })
         );
         const marketsData: Market[] = detailsArr.map(({ info, details }) => {
-          const d = (details || info) as unknown;
+          const d: any = (details || info);
+          const { pair, symbol } = getPairAndSymbolFromPriceFeedId(d.price_feed_id || '');
           return {
-            creator: typeof d === 'object' && d !== null && 'owner' in d ? (d as { owner?: string; creator?: string }).owner || (d as { creator?: string }).creator || '' : '',
-            pair_name: typeof d === 'object' && d !== null && 'pair_name' in d ? (d as { pair_name?: string }).pair_name || '' : '',
-            strike_price: typeof d === 'object' && d !== null && 'strike_price' in d ? Number((d as { strike_price?: string | number }).strike_price) || 0 : 0,
-            fee_percentage: typeof d === 'object' && d !== null && 'fee_percentage' in d ? Number((d as { fee_percentage?: string | number }).fee_percentage) || 0 : 0,
-            total_bids: typeof d === 'object' && d !== null && 'total_bids' in d ? Number((d as { total_bids?: string | number }).total_bids) || 0 : 0,
-            long_bids: typeof d === 'object' && d !== null && 'long_bids' in d ? Number((d as { long_bids?: string | number }).long_bids) || 0 : 0,
-            short_bids: typeof d === 'object' && d !== null && 'short_bids' in d ? Number((d as { short_bids?: string | number }).short_bids) || 0 : 0,
-            total_amount: typeof d === 'object' && d !== null && 'total_amount' in d ? Number((d as { total_amount?: string | number }).total_amount) || 0 : 0,
-            long_amount: typeof d === 'object' && d !== null && 'long_amount' in d ? Number((d as { long_amount?: string | number }).long_amount) || 0 : 0,
-            short_amount: typeof d === 'object' && d !== null && 'short_amount' in d ? Number((d as { short_amount?: string | number }).short_amount) || 0 : 0,
-            result: typeof d === 'object' && d !== null && 'result' in d ? Number((d as { result?: string | number }).result) || 2 : 2,
-            is_resolved: typeof d === 'object' && d !== null && 'is_resolved' in d ? Boolean((d as { is_resolved?: boolean }).is_resolved) : false,
-            bidding_start_time: typeof d === 'object' && d !== null && 'bidding_start_time' in d ? Number((d as { bidding_start_time?: string | number }).bidding_start_time) || 0 : 0,
-            bidding_end_time: typeof d === 'object' && d !== null && 'bidding_end_time' in d ? Number((d as { bidding_end_time?: string | number }).bidding_end_time) || 0 : 0,
-            maturity_time: typeof d === 'object' && d !== null && 'maturity_time' in d ? Number((d as { maturity_time?: string | number }).maturity_time) || 0 : 0,
-            final_price: typeof d === 'object' && d !== null && 'final_price' in d ? Number((d as { final_price?: string | number }).final_price) || 0 : 0,
-            fee_withdrawn: typeof d === 'object' && d !== null && 'fee_withdrawn' in d ? Boolean((d as { fee_withdrawn?: boolean }).fee_withdrawn) : false,
-            _key: typeof d === 'object' && d !== null && 'market_address' in d ? (d as { market_address?: string }).market_address || '' : '',
-            market_address: typeof d === 'object' && d !== null && 'market_address' in d ? (d as { market_address?: string }).market_address || '' : '',
-            created_at: typeof d === 'object' && d !== null && 'created_at' in d ? Number((d as { created_at?: string | number }).created_at) || 0 : 0,
+            creator: d.owner || d.creator || '',
+            pair_name: pair,
+            symbol,
+            strike_price: Number(d.strike_price) || 0,
+            fee_percentage: Number(d.fee_percentage) || 0,
+            total_bids: Number(d.total_bids) || 0,
+            long_bids: Number(d.long_bids) || 0,
+            short_bids: Number(d.short_bids) || 0,
+            total_amount: Number(d.total_amount) || 0,
+            long_amount: Number(d.long_amount) || 0,
+            short_amount: Number(d.short_amount) || 0,
+            result: Number(d.result) || 2,
+            is_resolved: Boolean(d.is_resolved),
+            bidding_start_time: Number(d.bidding_start_time) || 0,
+            bidding_end_time: Number(d.bidding_end_time) || 0,
+            maturity_time: Number(d.maturity_time) || 0,
+            final_price: Number(d.final_price) || 0,
+            fee_withdrawn: Boolean(d.fee_withdrawn),
+            _key: d.market_address || '',
+            market_address: d.market_address || '',
+            created_at: Number(d.created_at) || 0,
           };
         });
         setMarkets(marketsData);
@@ -263,13 +265,22 @@ const ListAddressOwner: React.FC = () => {
 
     const fetchPrices = async () => {
       if (document.visibilityState !== 'visible') return;
+      
       const pairs = Array.from(new Set(markets.map(m => m.pair_name)));
       const priceResults = await Promise.all(
-        pairs.map(async (pair) => {
+        pairs.map(async (rawPair) => {
+          const pair = (rawPair || '').trim().toUpperCase();
+          const symbol = getBinanceSymbolFromPairName(pair);
+          if (!symbol) {
+            
+            return { pair, price: undefined };
+          }
           try {
-            const priceData = await PriceService.getInstance().fetchPrice(pair.replace('/', '-'));
+            const priceData = await PriceService.getInstance().fetchPrice(symbol);
+            
             return { pair, price: priceData.price };
           } catch {
+            
             return { pair, price: undefined };
           }
         })
@@ -363,17 +374,26 @@ const ListAddressOwner: React.FC = () => {
                 </Box>
               ) : (
                 <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={3}>
-                  {paginatedMarkets.map((market) => (
-                    <ListAddressMarketCard
-                      key={market._key || market.pair_name}
-                      market={market}
-                      onClick={() => handleAddressClick(market)}
-                      pairPrices={pairPrices}
-                      getMarketPhase={getMarketPhase}
-                      getPhaseColor={getPhaseColor}
-                      getStableIndex={getStableIndex}
-                    />
-                  ))}
+                  {paginatedMarkets.map((market) => {
+                    const priceFeedId = (market as any).price_feed_id;
+                    let priceFeedHex = '';
+                    if (Array.isArray(priceFeedId)) {
+                      priceFeedHex = priceFeedId.map(x => x.toString(16).padStart(2, '0')).join('');
+                    } else if (typeof priceFeedId === 'string') {
+                      priceFeedHex = priceFeedId;
+                    }
+                    return (
+                      <ListAddressMarketCard
+                        key={market._key || market.pair_name}
+                        market={market}
+                        onClick={() => handleAddressClick(market)}
+                        pairPrices={pairPrices}
+                        getMarketPhase={getMarketPhase}
+                        getPhaseColor={getPhaseColor}
+                        getStableIndex={getStableIndex}
+                      />
+                    );
+                  })}
                 </SimpleGrid>
               )}
               {!loading && (

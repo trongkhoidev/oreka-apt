@@ -4,10 +4,12 @@ import { FaRegClock } from 'react-icons/fa';
 import { getMarketDetails } from '../../services/aptosMarketService';
 import { getStandardPairName } from '../../config/pairMapping';
 import Image from 'next/image';
+import { getBinanceSymbolFromPairName } from '../../config/tradingPairs';
 
 interface Market {
   creator: string;
   pair_name: string;
+  symbol?: string;
   strike_price: number;
   fee_percentage: number;
   total_bids: number;
@@ -25,6 +27,7 @@ interface Market {
   fee_withdrawn: boolean;
   _key?: string;
   market_address: string;
+  price_feed_id?: number[];
 }
 
 interface ListAddressMarketCardProps {
@@ -66,9 +69,17 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
       const d = await getMarketDetails(market.market_address);
       if (stopped) return;
       if (d) {
+        // Đảm bảo price_feed_id là mảng số
+        let pfid: number[] = [];
+        if (Array.isArray(d.price_feed_id)) {
+          pfid = d.price_feed_id as number[];
+        } else if (typeof d.price_feed_id === 'string') {
+          pfid = d.price_feed_id.match(/.{1,2}/g)?.map(x => parseInt(x, 16)) || [];
+        }
         setDetails({
           ...market,
           ...d,
+          price_feed_id: pfid,
           long_amount: Number(d.long_amount || 0),
           short_amount: Number(d.short_amount || 0),
           total_amount: Number(d.total_amount || 0),
@@ -111,8 +122,17 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
   const totalDeposited = total > 0 ? (total / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0';
   const phase = getMarketPhase(data);
   const phaseColor = getPhaseColor(phase);
-  
-  const pairName = data.pair_name;
+
+
+  const pairName = market.pair_name || '';
+  const symbol = market.symbol || '';
+  // Lấy giá từ symbol chuẩn hóa, nếu không có thì thử pair_name, nếu vẫn không có thì '--'
+  const price = (symbol && pairPrices[symbol] !== undefined)
+    ? `$${pairPrices[symbol].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : (pairName && pairPrices[pairName] !== undefined)
+      ? `$${pairPrices[pairName].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : '--';
+
   let baseToken = '';
   if (pairName && pairName.includes('/')) {
     baseToken = pairName.split('/')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -223,14 +243,13 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
         {/* Bar long/short: linh hoạt theo phase/result/expired */}
         <HStack mb={1} spacing={1} align="center" px={0}>
           {/* --- Maturity phase, resolved: show LONG/SHORT win --- */}
-          {phase === 'Maturity' && data.is_resolved && total > 0 && (
+          {phase === 'Maturity' && data.is_resolved && (typeof data.result === 'number' && (data.result === 0 || data.result === 1) || (typeof data.result === 'string' && (data.result === '0' || data.result === '1'))) && (
             (() => {
-              
               let show = null;
               if (typeof data.result === 'number' && (data.result === 0 || data.result === 1)) {
                 show = data.result === 0 ? 'LONG' : 'SHORT';
-              } else if (typeof data.final_price === 'number' && typeof data.strike_price === 'number') {
-                show = data.final_price >= data.strike_price ? 'LONG' : 'SHORT';
+              } else if (typeof data.result === 'string' && (data.result === '0' || data.result === '1')) {
+                show = data.result === '0' ? 'LONG' : 'SHORT';
               }
               if (show === 'LONG') {
                 return (
@@ -249,7 +268,7 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
             })()
           )}
           {/* --- Maturity phase, resolved or not, no bids: show EXPIRED (replace bar) --- */}
-          {phase === 'Maturity' && total === 0 && (
+          {phase === 'Maturity' && (!data.is_resolved || !((typeof data.result === 'number' && (data.result === 0 || data.result === 1)) || (typeof data.result === 'string' && (data.result === '0' || data.result === '1')))) && total === 0 && (
             <Box flex={1} h="32px" borderRadius="5px" bg="#3D3D3D" display="flex" alignItems="center" justifyContent="center" border="2px solid #444" px={2}>
               <Text color="#A9A9A9" fontWeight="bold" fontSize="xl" letterSpacing={1}>Expired</Text>
             </Box>
@@ -284,9 +303,7 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
         <Flex align="center" justify="space-between" mt={2} mb={1}>
           <HStack spacing={2} align="center">
             <Text color="white" fontWeight="bold" fontSize="sm">
-              {pairPrices[pairName] !== undefined
-                ? `$${pairPrices[pairName].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : '--'}
+              {price}
             </Text>
           </HStack>
           <HStack spacing={2} align="center">
@@ -300,15 +317,42 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
   );
 };
 
+// Mapping từ price_feed_id (hex string) sang pair_name
+const priceFeedIdToPair: Record<string, string> = {
+  "03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5": "APT/USD",
+  "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43": "BTC/USD",
+  "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace": "ETH/USD",
+  "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d": "SOL/USD",
+  "23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744": "SUI/USD",
+  "2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f": "BNB/USD",
+  "9d4294bbcd1174d6f2003ec365831e64cc31d9f6f15a2b85399db8d5000960f6": "WETH/USD",
+};
+
+function bytesToHex(bytes: number[] | Uint8Array | string | undefined): string {
+  if (!bytes) return '';
+  if (typeof bytes === 'string') {
+    // Nếu là hex string hợp lệ (64 ký tự), trả về luôn
+    if (/^[0-9a-fA-F]{64}$/.test(bytes)) return bytes.toLowerCase();
+    return '';
+  }
+  if (!Array.isArray(bytes)) return '';
+
+  const arr = bytes.filter(x => typeof x === 'number' && !isNaN(x) && x >= 0 && x <= 255);
+
+  return arr.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export function getMarketCardTitle(market: Market): string {
-  const pairName = getStandardPairName(market.pair_name || '') || '';
+  const priceFeedHex = bytesToHex(Array.isArray((market as any).price_feed_id) ? (market as any).price_feed_id : []);
+  const pairName = priceFeedIdToPair[priceFeedHex] || market.pair_name || '';
   const strike = (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const maturity = market.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
   return `${pairName} will reach $${strike} by ${maturity}?`;
 }
 
 export function getMarketLogoSrc(market: Market): string {
-  const pairName = getStandardPairName(market.pair_name || '') || '';
+  const priceFeedHex = bytesToHex(Array.isArray((market as any).price_feed_id) ? (market as any).price_feed_id : []);
+  const pairName = priceFeedIdToPair[priceFeedHex] || market.pair_name || '';
   let baseToken = '';
   if (pairName && pairName.includes('/')) {
     baseToken = pairName.split('/')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
