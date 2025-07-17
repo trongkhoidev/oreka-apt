@@ -59,6 +59,7 @@ const ListAddressOwner: React.FC = () => {
   
   const router = useRouter();
 
+
   type FilterType = 'all' | 'active' | 'resolved' | 'my' | 'holdings';
   const tabList: { label: string; value: FilterType }[] = [
     { label: 'All Markets', value: 'all' },

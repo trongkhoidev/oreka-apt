@@ -1,13 +1,13 @@
-# OREKA – Decentralized Binary Options Platform on Aptos
+# OREKA Binary Options – Decentralized Trading Platform on Aptos
 
-A professional, real-time decentralized binary options trading platform built on the Aptos blockchain, featuring on-chain Move smart contracts, a modern Next.js/React frontend, robust wallet and data integrations, and a seamless DeFi experience.
+A professional, real-time decentralized binary options trading platform built on the Aptos blockchain. OREKA combines on-chain Move smart contracts, a modern Next.js/React frontend, robust wallet and data integrations, and a seamless DeFi experience.
 
 ---
 
-## Features
+## 🚀 Features
 
 - **On-chain Binary Options**: All market logic and settlement are handled by Move smart contracts on Aptos.
-- **Real-time Price Feeds**: Live price data from trusted oracles (Pyth, Coinbase, Binance, etc.).
+- **Real-time Price Feeds**: Live price data from trusted oracles (Pyth, Binance, Coinbase, v.v.).
 - **Create & Trade Markets**: Deploy your own binary option markets or trade on existing ones.
 - **Multi-token Support**: Trade binary options on APT, BTC, ETH, SOL, SUI, BNB, WETH, and more.
 - **Wallet Integration**: Connect with Petra, Martian, Pontem, Blocto, Nightly, Particle, and other AIP-62 compatible wallets.
@@ -19,20 +19,23 @@ A professional, real-time decentralized binary options trading platform built on
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ### Smart Contracts (Move)
-- `sources/types.move`: Core data structures and event definitions.
-- `sources/binary_option_market.move`: Main binary options contract (market logic, events, settlement, claim, withdraw fee, registry, view functions).
-- `sources/pyth_price_adapter.move`: Oracle price integration (Pyth).
-- **Test**: `tests/binary_option_market_tests.move` – Unit tests for contract logic.
+- **Location**: `sources/`
+- **Contracts**:
+  - `types.move`: Core data structures and event definitions.
+  - `binary_option_market.move`: Main binary options contract (market logic, events, settlement, claim, withdraw fee, registry, view functions).
+  - `pyth_price_adapter.move`: Oracle price integration (Pyth).
+- **Tests**: `tests/binary_option_market_tests.move` – Unit tests for contract logic.
+- **Dependencies**: [Pyth Crosschain](https://github.com/pyth-network/pyth-crosschain.git)
 
 ### Frontend
 - **Framework**: Next.js (TypeScript, React)
 - **UI**: Chakra UI, Recharts, Chart.js
 - **Wallet Integration**: @aptos-labs/wallet-adapter-react, multi-wallet support
 - **Data**: On-chain fetch via Aptos fullnode REST API
-- **Project Structure**:
+- **Structure**:
   - `frontend/src/components/`: UI, charts, wallet, market cards, owner/customer panels
   - `frontend/src/services/`: Data fetching, price feeds, event listeners
   - `frontend/src/config/`: Network, contract, and trading pair configs
@@ -46,7 +49,7 @@ A professional, real-time decentralized binary options trading platform built on
 
 ---
 
-## Getting Started
+## ⚡ Getting Started
 
 ### Prerequisites
 - Node.js 18+
@@ -58,27 +61,27 @@ A professional, real-time decentralized binary options trading platform built on
 
 1. **Clone the repository:**
    ```bash
-git clone https://github.com/trongkhoidev/oreka-apt.git
-cd oreka
-```
+   git clone https://github.com/trongkhoidev/oreka-apt.git
+   cd oreka
+   ```
 2. **Install Aptos CLI:**
    ```bash
-curl -fsSL "https://aptos.dev/scripts/install_cli.py" | python3
-```
+   curl -fsSL "https://aptos.dev/scripts/install_cli.py" | python3
+   ```
 3. **Setup Aptos environment:**
    ```bash
-aptos init
-```
+   aptos init
+   ```
 4. **Deploy contracts:**
    ```bash
-./scripts/deploy.sh local
-```
+   ./scripts/deploy.sh local
+   ```
 5. **Start frontend:**
    ```bash
-cd frontend
-npm install
-npm run dev
-```
+   cd frontend
+   npm install
+   npm run dev
+   ```
 6. **Open** [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Environment Variables (Frontend)
@@ -92,7 +95,7 @@ NEXT_PUBLIC_BACKEND_API=http://localhost:3000
 
 ---
 
-## Usage
+## 🧑‍💻 Usage
 
 ### Creating a Market
 1. Connect your Aptos wallet
@@ -113,21 +116,24 @@ NEXT_PUBLIC_BACKEND_API=http://localhost:3000
 
 ---
 
-## Smart Contract Logic (Move)
-- **Market Registry**: Global registry for all markets, info, and events.
-- **Market Lifecycle**:
-  - `create_market`: Deploy a new binary option market (pair, strike, fee, time window)
-  - `bid`: Place a long/short bid during bidding phase
-  - `resolve_market`: Resolve market after maturity using oracle price (Pyth)
-  - `claim`: Claim winnings or refund after market is resolved
-  - `withdraw_fee`: Owner withdraws fee after market is resolved
-- **Events**: MarketCreatedEvent, BidEvent, ResolveEvent, ClaimEvent, WithdrawFeeEvent
-- **View Functions**: Get all markets, markets by owner, user position, market details
-- **Security**: All logic is on-chain, transparent, and auditable. Oracle integration for price feeds.
+## 🛠️ Development
+
+### Scripts
+- `npm run dev` – Start development server (frontend)
+- `npm run build` – Build for production (frontend)
+- `npm run start` – Start production server (frontend)
+- `npm run lint` – Run ESLint (frontend)
+- `./scripts/test.sh` – Run all Move contract tests
+- `aptos move compile` – Compile Move contracts
+
+### Code Style
+- TypeScript for type safety
+- ESLint for linting
+- Prettier for formatting
 
 ---
 
-## Project Structure
+## 📂 Project Structure
 
 ```
 oreka/
@@ -153,24 +159,7 @@ oreka/
 
 ---
 
-## Development
-
-### Scripts
-- `npm run dev` – Start development server (frontend)
-- `npm run build` – Build for production (frontend)
-- `npm run start` – Start production server (frontend)
-- `npm run lint` – Run ESLint (frontend)
-- `./scripts/test.sh` – Run all Move contract tests
-- `aptos move compile` – Compile Move contracts
-
-### Code Style
-- TypeScript for type safety
-- ESLint for linting
-- Prettier for formatting
-
----
-
-## Contributing
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -181,5 +170,8 @@ oreka/
 ---
 
 ## License
+
+##IDEA
+github: https://github.com/mangekyou-labs/oreka
 
 This project is licensed under the MIT License.

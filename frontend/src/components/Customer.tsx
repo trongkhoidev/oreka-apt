@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Flex, HStack, Text, Button, Container, useToast, Spinner, Tabs, TabList, TabPanels, Tab, TabPanel
 } from '@chakra-ui/react';
@@ -39,9 +39,9 @@ const formatClaimAmount = (amount: number) => {
   return apt.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 6 });
 };
 
-// Helper: decode base64 string sang mảng byte
+// Helper: decode base64 string to byte array
 function base64ToBytes(base64: string): number[] {
-  // Xử lý base64 chuẩn, không cắt bỏ ký tự nào
+  // Standard base64 decode, do not trim any characters
   const binary = atob(base64);
   const arr = Array.from(binary, (char) => char.charCodeAt(0));
   console.log('[base64ToBytes] base64 đầu:', base64.slice(0, 32), '... length:', base64.length, '-> bytes length:', arr.length, 'first bytes:', arr.slice(0, 8), 'last bytes:', arr.slice(-8));
@@ -226,24 +226,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
   }, [market?.pair_name]);
 
-  // Derived values
-  const maturityTimeMs = market?.maturity_time ? Number(market.maturity_time) * 1000 : 0;
-  const canResolve = phase === Phase.Maturity 
-    && !market?.is_resolved 
-    && maturityTimeMs > 0
-    && Date.now() >= maturityTimeMs;
-  const long = market?.long_amount ? Number(market.long_amount) : 0;
-  const short = market?.short_amount ? Number(market.short_amount) : 0;
-  const total = market?.total_amount ? Number(market.total_amount) : long + short;
-  const longPercentage = total === 0 ? 50 : (long / total) * 100;
-  const shortPercentage = total === 0 ? 50 : (short / total) * 100;
-  const pairName = market?.pair_name || '';
-  const symbol = market?.symbol || '';
-  const strike = market?.strike_price ? (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
-  const maturity = market?.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
-  const fee = market?.fee_percentage ? (Number(market.fee_percentage) / 10).toFixed(1) : '--';
-
-
+  // Helper: tính claimable amount
   const getClaimableAmount = () => {
     if (!market || !market.is_resolved || !account?.address) return 0;
     const userLong = userPositions.long;
@@ -271,21 +254,35 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     return rawAmount - fee;
   };
 
-  const claimableAmount = getClaimableAmount();
-  const isWinner = claimableAmount > 0;
-
-
-  const isOwner = account?.address && market?.creator && account.address.toString().toLowerCase() === market.creator.toLowerCase();
-
-  const canWithdrawFee = isOwner && market?.is_resolved && !market?.fee_withdrawn;
-
-  const getWithdrawFeeAmount = () => {
+  // Memoized derived values for correct UI update
+  const claimableAmount = useMemo(() => getClaimableAmount(), [market, userPositions, account]);
+  const isWinner = useMemo(() => claimableAmount > 0, [claimableAmount]);
+  const isOwner = useMemo(() => account?.address && market?.creator && account.address.toString().toLowerCase() === market.creator.toLowerCase(), [account?.address, market?.creator]);
+  const canWithdrawFee = useMemo(() => isOwner && market?.is_resolved && !market?.fee_withdrawn, [isOwner, market]);
+  const withdrawFeeAmount = useMemo(() => {
     if (!market) return 0;
     const feePercentage = Number(market.fee_percentage);
     const totalAmount = Number(market.total_amount);
     return Math.floor((feePercentage * totalAmount) / 1000);
-  };
-  const withdrawFeeAmount = getWithdrawFeeAmount();
+  }, [market]);
+
+  // Derived values
+  const maturityTimeMs = market?.maturity_time ? Number(market.maturity_time) * 1000 : 0;
+  const canResolve = phase === Phase.Maturity 
+    && !market?.is_resolved 
+    && maturityTimeMs > 0
+    && Date.now() >= maturityTimeMs;
+  const long = market?.long_amount ? Number(market.long_amount) : 0;
+  const short = market?.short_amount ? Number(market.short_amount) : 0;
+  const total = market?.total_amount ? Number(market.total_amount) : long + short;
+  const longPercentage = total === 0 ? 50 : (long / total) * 100;
+  const shortPercentage = total === 0 ? 50 : (short / total) * 100;
+  const pairName = market?.pair_name || '';
+  const symbol = market?.symbol || '';
+  const strike = market?.strike_price ? (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+  const maturity = market?.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
+  const fee = market?.fee_percentage ? (Number(market.fee_percentage) / 10).toFixed(1) : '--';
+
 
   // Handlers
   const handleBid = async () => {
@@ -406,7 +403,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       try {
         await resolveMarket(signAndSubmitTransaction, contractAddress, pythPriceUpdate);
         console.log('[handleResolve] resolveMarket SUCCESS');
-        toast({ title: 'Market resolve transaction submitted', status: 'success' });
+      toast({ title: 'Market resolve transaction submitted', status: 'success' });
         const details = await getMarketDetails(contractAddress);
         setMarket(details);
         // fetchMarketData(); // Removed polling after successful resolve
@@ -432,7 +429,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     try {
       await claim(signAndSubmitTransaction, contractAddress);
       toast({ title: 'Claim transaction submitted', status: 'success' });
-      fetchMarketData();
+      await fetchMarketData();
     } catch (error: unknown) {
       toast({ title: 'Claim failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -451,7 +448,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     try {
       await withdrawFee(signAndSubmitTransaction, contractAddress);
       toast({ title: 'Withdraw fee transaction submitted', status: 'success' });
-      fetchMarketData();
+      await fetchMarketData();
     } catch (error: unknown) {
       toast({ title: 'Withdraw fee failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -622,7 +619,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 </Flex>
               )}
 
-              {phase === Phase.Maturity && market?.is_resolved && isWinner && claimableAmount > 0 && (
+              {phase === Phase.Maturity && isWinner && claimableAmount > 0 && (
                 <Button
                   onClick={handleClaim}
                   colorScheme="yellow"

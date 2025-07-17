@@ -230,7 +230,7 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
           alt={pairName}
           width={300}
           height={180}
-          style={{ objectFit: 'cover' }}
+          style={{ objectFit: 'cover', width: '100%', height: '180px', display: 'block' }}
           onError={e => { e.currentTarget.src = '/images/coinbase.png'; }}
         />
         <Badge position="absolute" top={2} left={2} fontSize="xs" px={3} py={1} borderRadius="md" zIndex={2} bg={phaseColor} color="#181A20" fontWeight="bold">
@@ -317,7 +317,7 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
   );
 };
 
-// Mapping từ price_feed_id (hex string) sang pair_name
+// Mapping from price_feed_id (hex string) to pair_name
 const priceFeedIdToPair: Record<string, string> = {
   "03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5": "APT/USD",
   "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43": "BTC/USD",
@@ -328,10 +328,11 @@ const priceFeedIdToPair: Record<string, string> = {
   "9d4294bbcd1174d6f2003ec365831e64cc31d9f6f15a2b85399db8d5000960f6": "WETH/USD",
 };
 
+// Convert bytes to hex string (if valid 64-char hex string, return as is)
 function bytesToHex(bytes: number[] | Uint8Array | string | undefined): string {
   if (!bytes) return '';
   if (typeof bytes === 'string') {
-    // Nếu là hex string hợp lệ (64 ký tự), trả về luôn
+    // If already a valid 64-char hex string, return as is
     if (/^[0-9a-fA-F]{64}$/.test(bytes)) return bytes.toLowerCase();
     return '';
   }
