@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Text, HStack, VStack, Icon, Spinner, Divider, Tooltip } from '@chakra-ui/react';
+import { Box, Text, HStack, VStack, Icon, Spinner, Divider } from '@chakra-ui/react';
 import { FaGasPump, FaRocket, FaArrowUp, FaClock } from 'react-icons/fa';
 import { GasSpeed, GasEstimate, getMarketCount } from '../../services/aptosMarketService';
 import { PriceService } from '../../services/PriceService';
@@ -48,23 +48,21 @@ const DEFAULT_APT_PRICE = 8.5;
 
 const NetworkFeeBox: React.FC<NetworkFeeBoxProps> = ({ selectedGasSpeed, setSelectedGasSpeed, isEstimatingGas, gasEstimate }) => {
   const [aptPrice, setAptPrice] = useState<number>(DEFAULT_APT_PRICE);
-  const [marketCount, setMarketCount] = useState<number>(0);
 
   useEffect(() => {
     async function fetchAptPrice() {
       try {
         const priceData = await PriceService.getInstance().fetchPrice('APTUSDT');
         if (priceData && priceData.price > 0) setAptPrice(priceData.price);
-      } catch (e) {
+      } catch {
         setAptPrice(DEFAULT_APT_PRICE);
       }
     }
     fetchAptPrice();
-    // Fetch số lượng market hiện tại
-    getMarketCount().then(setMarketCount);
+
+    getMarketCount();
   }, []);
 
-  // Tính lại totalFeeAPT và totalFeeUSD dựa trên gasUsed, gasUnitPrice, aptPrice
   let totalFeeAPT = 0;
   let totalFeeUSD = 0;
   if (gasEstimate) {

@@ -2,7 +2,6 @@
 import { BINARY_OPTION_MARKET_MODULE_ADDRESS } from '@/config/contracts';
 import { getAptosClient } from '../config/network';
 import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
-import { getStandardPairName } from '@/config/pairMapping';
 import { getPairAndSymbolFromPriceFeedId } from '../config/tradingPairs';
 
 // Debug: Monkey-patch fetch to log stacktrace when calling /module/binary_option_market
@@ -91,8 +90,7 @@ export const GAS_SPEED_DESCRIPTIONS = {
   [GasSpeed.INSTANT]: 'Highest priority, premium cost'
 };
 
-// Helper: chuẩn hóa và validate U64 string
-function safeU64String(val: any, name: string): string {
+function safeU64String(val: string | number, name: string): string {
   if (val === undefined || val === null || val === '' || isNaN(Number(val))) {
     throw new Error(`[estimateDeployMarketGas] Invalid argument for ${name}: ${val}`);
   }
@@ -108,7 +106,7 @@ export async function estimateDeployMarketGas(
 ): Promise<GasEstimate> {
   try {
     const aptos = getAptosClient();
-    let hex = params.pairName.startsWith('0x') ? params.pairName.slice(2) : params.pairName;
+    const hex = params.pairName.startsWith('0x') ? params.pairName.slice(2) : params.pairName;
     if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
     const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
     if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
@@ -234,7 +232,7 @@ export async function deployMarketWithGasSettings(
       maturityTime,
     } = params;
     
-    let hex = pairName.startsWith('0x') ? pairName.slice(2) : pairName;
+    const hex = pairName.startsWith('0x') ? pairName.slice(2) : pairName;
     if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
     const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
     if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
@@ -294,7 +292,7 @@ export async function deployMarket(
       maturityTime,
     } = params;
 
-    let hex = pairName.startsWith('0x') ? pairName.slice(2) : pairName;
+    const hex = pairName.startsWith('0x') ? pairName.slice(2) : pairName;
     if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
     const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
     if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
@@ -354,16 +352,15 @@ export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
   }
 }
 
-// Thêm cache in-memory cho getMarketDetails
-const marketDetailsCache: Record<string, { data: any, ts: number, rateLimitedUntil?: number }> = {};
+
+const marketDetailsCache: Record<string, { data: MarketInfo | null, ts: number, rateLimitedUntil?: number }> = {};
 
 export async function getMarketDetails(marketObjectAddress: string): Promise<MarketInfo | null> {
   const now = Date.now();
-  // Nếu có cache và chưa hết hạn (3 phút), trả về luôn
   if (marketDetailsCache[marketObjectAddress] && now - marketDetailsCache[marketObjectAddress].ts < 3 * 60 * 1000) {
     return marketDetailsCache[marketObjectAddress].data;
   }
-  // Nếu đang bị rate limit, không gọi lại
+ 
   if (marketDetailsCache[marketObjectAddress]?.rateLimitedUntil && now < marketDetailsCache[marketObjectAddress].rateLimitedUntil) {
     console.warn(`[getMarketDetails] Skipping fetch for ${marketObjectAddress} due to rate limit.`);
     return marketDetailsCache[marketObjectAddress].data || null;
@@ -402,7 +399,7 @@ export async function getMarketDetails(marketObjectAddress: string): Promise<Mar
         let resource;
         try {
           resource = JSON.parse(text);
-        } catch (e) {
+        } catch (e: unknown) {
           console.error('[getMarketDetails] Failed to parse JSON:', e, text);
           return null;
         }
@@ -630,7 +627,7 @@ export async function getMarketCount(): Promise<number> {
   try {
     const markets = await getAllMarkets();
     return markets.length;
-  } catch (e) {
+  } catch {
     return 0;
   }
 } 

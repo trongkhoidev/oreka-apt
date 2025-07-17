@@ -15,7 +15,6 @@ interface MarketTimelineProps {
   isSubmitting: boolean;
 }
 
-// Helper: format time ngắn gọn
 function shortDate(ts: number) {
   const d = new Date(ts * 1000);
   return d.getDate().toString().padStart(2, '0') + '/' + (d.getMonth() + 1).toString().padStart(2, '0');
@@ -42,15 +41,14 @@ const MarketTimeline: React.FC<MarketTimelineProps> = ({ phase, phaseNames, mark
       try {
         // Fetch ResolveEvent list
         const events = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${MODULE_ADDRESS}/events/${MODULE_ADDRESS}::binary_option_market::MarketRegistry/${RESOLVE_EVENT_HANDLE}`).then(res => res.json());
-        // Tìm event có final_price trùng với market.final_price (so sánh số để tránh lỗi format)
-        const event = events.find((e: any) => {
+        const event = events.find((e: { data: { final_price: number; }; version: string; }) => {
           return e.data && Number(e.data.final_price) === Number(market.final_price);
         });
         if (event && event.version) {
-          // Lấy transaction theo version
+    
           const tx = await fetch(`https://api.mainnet.aptoslabs.com/v1/transactions/by_version/${event.version}`).then(res => res.json());
           if (tx && tx.timestamp) {
-            // timestamp là microseconds
+       
             const date = new Date(Number(tx.timestamp) / 1000);
             // Format dd/mm/yyyy, HH:MM:SS
             const formatted = date.getDate().toString().padStart(2, '0') + '/' +
@@ -60,7 +58,7 @@ const MarketTimeline: React.FC<MarketTimelineProps> = ({ phase, phaseNames, mark
             setResolvedTime(formatted);
           }
         }
-      } catch (e) {
+      } catch {
         setResolvedTime(null);
       }
     }
@@ -78,7 +76,7 @@ const MarketTimeline: React.FC<MarketTimelineProps> = ({ phase, phaseNames, mark
   }
 
   return (
-    <Box bg="#222530" p={4} mt={7} borderWidth={1} borderColor="gray.700" borderRadius="30px" boxShadow="md" position="relative" height="283px">
+    <Box bg="#222530" p={4} mt={7} borderWidth={1} borderColor="gray.700" borderRadius="30px" boxShadow="md" position="relative" height={resolvedTime ? "285px" : "265px"}>
       <Text fontSize="2xl" fontWeight="bold" mb={2}  color="#fff" textAlign="center">
         {outcomeText
           ? <>

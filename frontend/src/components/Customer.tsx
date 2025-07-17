@@ -278,7 +278,6 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const longPercentage = total === 0 ? 50 : (long / total) * 100;
   const shortPercentage = total === 0 ? 50 : (short / total) * 100;
   const pairName = market?.pair_name || '';
-  const symbol = market?.symbol || '';
   const strike = market?.strike_price ? (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
   const maturity = market?.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
   const fee = market?.fee_percentage ? (Number(market.fee_percentage) / 10).toFixed(1) : '--';
@@ -555,7 +554,6 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                       chartType="position"
                       data={positionHistory}
                       height={CHART_HEIGHT}
-                      marketAddress={contractAddress}
                       biddingStartTime={market?.bidding_start_time ? Number(market.bidding_start_time) * 1000 : undefined}
                       biddingEndTime={market?.bidding_end_time ? Number(market.bidding_end_time) * 1000 : undefined}
                       currentTime={currentTime}

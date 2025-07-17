@@ -20,8 +20,6 @@ export interface KlineData {
 
 type KlineArray = [number, string, string, string, string, string, number, string, number, string, string, string];
 
-import { getAvailableTradingPairs } from '../config/tradingPairs';
-
 export class PriceService {
   private static instance: PriceService;
   private priceSubscribers: ((data: PriceData) => void)[] = [];

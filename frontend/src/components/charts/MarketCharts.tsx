@@ -16,7 +16,6 @@ interface MarketChartsProps {
   chartType: 'price' | 'position';
   data?: PositionPoint[];
   height?: number;
-  marketAddress?: string; // Add market address for realtime updates
   biddingStartTime?: number;
   biddingEndTime?: number;
   currentTime?: number;
@@ -28,7 +27,6 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   chartType, 
   data, 
   height = 400, 
-  marketAddress,
   biddingStartTime,
   biddingEndTime,
   currentTime

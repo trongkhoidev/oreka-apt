@@ -2,9 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Badge, Text, HStack, Flex, Icon } from '@chakra-ui/react';
 import { FaRegClock } from 'react-icons/fa';
 import { getMarketDetails } from '../../services/aptosMarketService';
-import { getStandardPairName } from '../../config/pairMapping';
 import Image from 'next/image';
-import { getBinanceSymbolFromPairName } from '../../config/tradingPairs';
 
 interface Market {
   creator: string;
@@ -27,7 +25,7 @@ interface Market {
   fee_withdrawn: boolean;
   _key?: string;
   market_address: string;
-  price_feed_id?: number[];
+  price_feed_id?: number[] | string | undefined;
 }
 
 interface ListAddressMarketCardProps {
@@ -344,7 +342,7 @@ function bytesToHex(bytes: number[] | Uint8Array | string | undefined): string {
 }
 
 export function getMarketCardTitle(market: Market): string {
-  const priceFeedHex = bytesToHex(Array.isArray((market as any).price_feed_id) ? (market as any).price_feed_id : []);
+  const priceFeedHex = bytesToHex(Array.isArray((market as Market).price_feed_id) ? (market as Market).price_feed_id : []);
   const pairName = priceFeedIdToPair[priceFeedHex] || market.pair_name || '';
   const strike = (Number(market.strike_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const maturity = market.maturity_time ? new Date(Number(market.maturity_time) * 1000).toLocaleString() : '';
@@ -352,7 +350,7 @@ export function getMarketCardTitle(market: Market): string {
 }
 
 export function getMarketLogoSrc(market: Market): string {
-  const priceFeedHex = bytesToHex(Array.isArray((market as any).price_feed_id) ? (market as any).price_feed_id : []);
+  const priceFeedHex = bytesToHex(Array.isArray((market as Market).price_feed_id) ? (market as Market).price_feed_id : []);
   const pairName = priceFeedIdToPair[priceFeedHex] || market.pair_name || '';
   let baseToken = '';
   if (pairName && pairName.includes('/')) {

@@ -1,16 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { 
   Box, 
-
-  VStack, 
   useToast, 
- 
-  Text, 
-
   Container,
-  Heading,
-
-
   Flex
 } from '@chakra-ui/react';
 import { TradingPairInfo, getPriceFeedIdFromPairName } from '../config/tradingPairs';
@@ -23,7 +15,6 @@ import {
   GasEstimate,
 } from '../services/aptosMarketService';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
-import ConnectWallet from './ConnectWallet';
 import OwnerDeployForm from './owner/OwnerDeployForm';
 import PreviewBox from './owner/PreviewBox';
 import NetworkFeeBox from './owner/NetworkFeeBox';

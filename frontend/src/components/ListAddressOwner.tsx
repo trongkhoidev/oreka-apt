@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
-  Container,
-  Heading,
-  VStack,
   Text,
   Button,
   Spinner,
@@ -14,7 +11,7 @@ import {  getAllMarkets, getMarketDetails } from '../services/aptosMarketService
 import { PriceService } from '../services/PriceService';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { useRouter } from 'next/router';
-import { getAvailableTradingPairs, getBinanceSymbolFromPairName, getPairNameFromPriceFeedId, getPairAndSymbolFromPriceFeedId } from '../config/tradingPairs';
+import { getAvailableTradingPairs, getBinanceSymbolFromPairName, getPairAndSymbolFromPriceFeedId } from '../config/tradingPairs';
 import ListAddressMarketCard from './listaddressowner/ListAddressMarketCard';
 import ListAddressTabs from './listaddressowner/ListAddressTabs';
 import { hasUserHoldings } from '../services/userHoldingsService';
@@ -41,10 +38,11 @@ interface Market {
   _key?: string;
   market_address: string;
   created_at?: number; // Added for sorting
+  price_feed_id?: number[] | string | undefined;
 }
 
 const ListAddressOwner: React.FC = () => {
-  const { connected, account } = useWallet();
+  const { account } = useWallet();
   const walletAddress = account?.address?.toString() || '';
   const [markets, setMarkets] = useState<Market[]>([]);
   const [filteredMarkets, setFilteredMarkets] = useState<Market[]>([]);
@@ -54,7 +52,6 @@ const ListAddressOwner: React.FC = () => {
   const [pairFilter, setPairFilter] = useState('');
   const [page, setPage] = useState(1);
   const contractsPerPage = 16;
-  const [marketDetails] = useState<Record<string, unknown[] | null>>({});
   const [pairPrices, setPairPrices] = useState<Record<string, number>>({});
   
   const router = useRouter();
@@ -73,7 +70,6 @@ const ListAddressOwner: React.FC = () => {
   const [myHoldingsLoading, setMyHoldingsLoading] = useState(false);
   const [myHoldingsMarkets, setMyHoldingsMarkets] = useState<Market[]>([]);
 
-  // uniquePairs chỉ lấy từ danh sách contracts của current tab
   const uniquePairs = useMemo(() => {
     let source: Market[] = markets;
     if (filter === 'holdings') {
@@ -88,9 +84,6 @@ const ListAddressOwner: React.FC = () => {
     }
     return Array.from(new Set(source.map(m => m.pair_name)));
   }, [filter, markets, myHoldingsMarkets, walletAddress]);
-
-  const marketsCache = React.useRef<Record<string, Market[]>>({});
-
 
   useEffect(() => {
     setLoading(true);
@@ -128,10 +121,11 @@ const ListAddressOwner: React.FC = () => {
           })
         );
         const marketsData: Market[] = detailsArr.map(({ info, details }) => {
-          const d: any = (details || info);
-          const { pair, symbol } = getPairAndSymbolFromPriceFeedId(d.price_feed_id || '');
+          const d = (details || info) as Market;
+          const priceFeedIdStr = typeof d.price_feed_id === 'string' ? d.price_feed_id : Array.isArray(d.price_feed_id) ? d.price_feed_id.join('') : '';
+          const { pair, symbol } = getPairAndSymbolFromPriceFeedId(priceFeedIdStr);
           return {
-            creator: d.owner || d.creator || '',
+            creator: d.creator || '',
             pair_name: pair,
             symbol,
             strike_price: Number(d.strike_price) || 0,
@@ -152,6 +146,7 @@ const ListAddressOwner: React.FC = () => {
             _key: d.market_address || '',
             market_address: d.market_address || '',
             created_at: Number(d.created_at) || 0,
+            price_feed_id: d.price_feed_id,
           };
         });
         setMarkets(marketsData);
@@ -246,7 +241,7 @@ const ListAddressOwner: React.FC = () => {
       filtered = filtered.filter(market => myHoldingsMarkets.includes(market));
     }
     setFilteredMarkets(filtered);
-  }, [markets, searchTerm, filter, walletAddress, allowedPairs, marketDetails]);
+  }, [markets, searchTerm, filter, walletAddress, allowedPairs, myHoldingsMarkets]);
 
   // Main filtered list
   const filtered = filter === 'holdings'
@@ -343,7 +338,7 @@ const ListAddressOwner: React.FC = () => {
     if (pageFromUrl !== page) {
       setPage(pageFromUrl > 0 ? pageFromUrl : 1);
     }
-  }, [router.query.page]);
+  }, [router.query.page, page]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -376,17 +371,10 @@ const ListAddressOwner: React.FC = () => {
               ) : (
                 <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={3}>
                   {paginatedMarkets.map((market) => {
-                    const priceFeedId = (market as any).price_feed_id;
-                    let priceFeedHex = '';
-                    if (Array.isArray(priceFeedId)) {
-                      priceFeedHex = priceFeedId.map(x => x.toString(16).padStart(2, '0')).join('');
-                    } else if (typeof priceFeedId === 'string') {
-                      priceFeedHex = priceFeedId;
-                    }
                     return (
                       <ListAddressMarketCard
                         key={market._key || market.pair_name}
-                        market={market}
+                        market={market as Market}
                         onClick={() => handleAddressClick(market)}
                         pairPrices={pairPrices}
                         getMarketPhase={getMarketPhase}
