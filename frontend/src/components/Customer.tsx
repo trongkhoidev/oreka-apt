@@ -76,7 +76,6 @@ const getClaimableAmount = (market: MarketInfoType | null, userPositions: { long
   return rawAmount - fee;
 };
 
-// Thêm hàm clearLocalCache để xóa cache liên quan đến market/user
 function clearLocalCache() {
   localStorage.removeItem('contractData');
   localStorage.removeItem('selectedContractAddress');
@@ -145,7 +144,6 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
   }, [connected, account, contractAddress]);
 
-  // Sửa fetchMarketData để nhận thêm forceRefresh (mặc định false)
   const fetchMarketData = useCallback(async (forceRefresh: boolean = false) => {
     if (!contractAddress) return;
     setIsLoading(true);
@@ -280,7 +278,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     if (!account?.address || !contractAddress) return;
     (async () => {
       const [long, short] = await getUserBid(account.address.toString(), contractAddress);
-      // Chỉ coi là đã claim nếu market đã resolved và không còn bid
+     
       setHasClaimed(!!market?.is_resolved && Number(long) === 0 && Number(short) === 0);
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
