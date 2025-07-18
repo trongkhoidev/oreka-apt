@@ -99,16 +99,14 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const [forcePolling, setForcePolling] = useState(false);
-  // Thêm state để lưu trạng thái trước khi thao tác
   const [prevMarket, setPrevMarket] = useState<MarketInfoType | null>(null);
   const [prevClaimable, setPrevClaimable] = useState<number>(0);
   const [prevFeeWithdrawn, setPrevFeeWithdrawn] = useState<boolean>(false);
   const [waitingForResolve, setWaitingForResolve] = useState(false);
-  // Thêm state để kiểm tra đã claim chưa
+
   const [hasClaimed, setHasClaimed] = useState(false);
 
-  // Di chuyển thực tế các khai báo sau lên phía trên useEffect polling market data:
+  
   const claimableAmount = useMemo(() => getClaimableAmount(market, userPositions), [market, userPositions]);
   const isWinner = useMemo(() => claimableAmount > 0, [claimableAmount]);
   const isOwner = useMemo(() => account?.address && market?.creator && account.address.toString().toLowerCase() === market.creator.toLowerCase(), [account?.address, market?.creator]);
@@ -358,10 +356,6 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     setIsSubmitting(true);
     setPrevMarket(market);
     try {
-      // Detect chain (simple heuristic)
-      let chain = 'mainnet';
-      if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('testnet')) chain = 'testnet';
-      if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('devnet')) chain = 'devnet';
       // get price_feed_id from market
       let priceFeedId = market.price_feed_id;
       if (Array.isArray(priceFeedId)) {
