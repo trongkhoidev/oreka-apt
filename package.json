@@ -14,5 +14,9 @@
     "node-fetch": "^3.3.2",
     "petra-plugin-wallet-adapter": "^0.4.5",
     "react-chartjs-2": "^5.3.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.31.0",
+    "typescript": "^5.8.3"
   }
 }
