@@ -48,9 +48,9 @@ function base64ToBytes(base64: string): number[] {
   return arr;
 }
 
-// Helper: tính claimable amount
+
 const getClaimableAmount = (market: MarketInfoType | null, userPositions: { long: number; short: number }) => {
-  if (!market || !market.is_resolved || !userPositions.long || !userPositions.short) return 0;
+  if (!market || !market.is_resolved || (userPositions.long === 0 && userPositions.short === 0)) return 0;
   const userLong = userPositions.long;
   const userShort = userPositions.short;
   const result = Number(market.result);
@@ -106,7 +106,6 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   }, []);
 
   const [prevMarket, setPrevMarket] = useState<MarketInfoType | null>(null);
-  const [prevClaimable, setPrevClaimable] = useState<number>(0);
   const [prevFeeWithdrawn, setPrevFeeWithdrawn] = useState<boolean>(false);
   const [waitingForResolve, setWaitingForResolve] = useState(false);
 
@@ -114,7 +113,6 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
 
   
   const claimableAmount = useMemo(() => getClaimableAmount(market, userPositions), [market, userPositions]);
-  const isWinner = useMemo(() => claimableAmount > 0, [claimableAmount]);
   const isOwner = useMemo(() => account?.address && market?.creator && account.address.toString().toLowerCase() === market.creator.toLowerCase(), [account?.address, market?.creator]);
   const canWithdrawFee = useMemo(() => isOwner && market?.is_resolved && !market?.fee_withdrawn, [isOwner, market]);
   const withdrawFeeAmount = useMemo(() => {
@@ -194,7 +192,6 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     
     if (waitingForResolve && prevMarket) {
       if (prevMarket.is_resolved !== market?.is_resolved && Number(market?.final_price) > 0) polling = false;
-      if (prevClaimable !== claimableAmount) polling = false;
       if (prevFeeWithdrawn !== market?.fee_withdrawn) polling = false;
     }
     if (polling) {
@@ -208,7 +205,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       if (timeout) clearTimeout(timeout);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contractAddress, fetchMarketData, market?.is_resolved, waitingForResolve, claimableAmount, market?.fee_withdrawn, market?.final_price]);
+  }, [contractAddress, fetchMarketData, market?.is_resolved, waitingForResolve, market?.fee_withdrawn, market?.final_price]);
 
   // Fetch position history for the market - build from BidEvents
   useEffect(() => {
@@ -283,6 +280,21 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account?.address, contractAddress, userPositions.long, userPositions.short, claimableAmount, market?.is_resolved]);
+
+  // Debug log các giá trị quan trọng trước khi render nút Claim Reward
+  useEffect(() => {
+    console.log('[DEBUG] account.address:', account?.address);
+    console.log('[DEBUG] market.is_resolved:', market?.is_resolved);
+    console.log('[DEBUG] userPositions:', userPositions);
+    console.log('[DEBUG] claimableAmount:', claimableAmount);
+  }, [account?.address, market?.is_resolved, userPositions, claimableAmount]);
+
+  // Khi market resolve xong thì fetch lại userPositions để cập nhật UI
+  useEffect(() => {
+    if (market?.is_resolved && account?.address) {
+      fetchUserPositions();
+    }
+  }, [market?.is_resolved, account?.address]);
 
   // Fetch asset price
   useEffect(() => {
@@ -437,14 +449,11 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       return;
     }
     setIsSubmitting(true);
-    setPrevClaimable(claimableAmount);
     try {
       await claim(signAndSubmitTransaction, contractAddress);
       toast({ title: 'Claim transaction submitted', status: 'success' });
       await fetchMarketData();
-      await fetchUserPositions();
-      setWaitingForResolve(true);
-      clearLocalCache(); // Clear cache after successful claim
+      await fetchUserPositions(); // Luôn fetch lại userPositions sau khi claim
     } catch (error: unknown) {
       toast({ title: 'Claim failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -637,8 +646,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 </Flex>
               )}
 
-              {/* Nút Claim chỉ hiển thị khi market đã resolved, user còn bid, claimableAmount > 0, và chưa claim */}
-              {phase === Phase.Maturity && isWinner && claimableAmount > 0 && !hasClaimed && (Number(userPositions.long) > 0 || Number(userPositions.short) > 0) && (
+              {phase === Phase.Maturity && claimableAmount > 0 && !hasClaimed && (
                 <Button
                   onClick={handleClaim}
                   colorScheme="yellow"
@@ -654,7 +662,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                   Claim Rewards
                 </Button>
               )}
-              {/* Nút Withdraw Fee chỉ hiển thị khi market.fee_withdrawn === false */}
+              
               {phase === Phase.Maturity && canWithdrawFee && !market?.fee_withdrawn && withdrawFeeAmount > 0 && (
                 <Button
                   onClick={handleWithdrawFee}
