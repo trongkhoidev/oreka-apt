@@ -267,7 +267,7 @@ const Owner: React.FC = () => {
 
   function formatShortDateTime(dateStr: string, timeStr: string) {
     if (!dateStr || !timeStr) return '';
-    // dateStr: yyyy-mm-dd hoặc yyyy/MM/dd
+    // dateStr: yyyy-mm-dd or yyyy/MM/dd
     const [ m, d] = dateStr.includes('-') ? dateStr.split('-') : dateStr.split('/');
     return `${d}/${m} ${timeStr}`;
   }
@@ -278,7 +278,7 @@ const Owner: React.FC = () => {
     <Box bg="#0A0B0F" minH="100vh" color="white">
       <Container maxW="1200px" py={12}>
         <Flex align="start" direction="row" w="full">
-          {/* Form tạo market */}
+          {/* Form create market */}
           <Box flex={2} bg="#181A20" borderRadius="2xl" boxShadow="lg" border="1px solid #23262f" p={6}>
             <OwnerDeployForm
               availablePairs={availablePairs}

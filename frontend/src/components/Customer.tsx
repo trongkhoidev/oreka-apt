@@ -76,6 +76,13 @@ const getClaimableAmount = (market: MarketInfoType | null, userPositions: { long
   return rawAmount - fee;
 };
 
+// Thêm hàm clearLocalCache để xóa cache liên quan đến market/user
+function clearLocalCache() {
+  localStorage.removeItem('contractData');
+  localStorage.removeItem('selectedContractAddress');
+  localStorage.removeItem('allMarketsCache');
+}
+
 const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const { connected, account, signAndSubmitTransaction } = useWallet();
   const toast = useToast();
@@ -268,15 +275,16 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
   }, [market, connected, account, fetchUserPositions]);
 
-  // Cập nhật hasClaimed sau mỗi fetchUserPositions
+  // Sửa useEffect cập nhật hasClaimed:
   useEffect(() => {
     if (!account?.address || !contractAddress) return;
     (async () => {
       const [long, short] = await getUserBid(account.address.toString(), contractAddress);
-      // Nếu user không còn bid nào (sau khi claim xong contract sẽ xóa bid), coi như đã claim
-      setHasClaimed(Number(long) === 0 && Number(short) === 0);
+      // Chỉ coi là đã claim nếu market đã resolved và không còn bid
+      setHasClaimed(!!market?.is_resolved && Number(long) === 0 && Number(short) === 0);
     })();
-  }, [account?.address, contractAddress, userPositions.long, userPositions.short, claimableAmount]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.address, contractAddress, userPositions.long, userPositions.short, claimableAmount, market?.is_resolved]);
 
   // Fetch asset price
   useEffect(() => {
@@ -380,33 +388,13 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
         console.error('[handleResolve] Lỗi parse JSON từ Hermes:', e, responseText);
         throw new Error('Hermes trả về dữ liệu không phải JSON');
       }
-      // Kiểm tra từng nhánh, log rõ lý do reject
-      if (!data) {
-        console.warn('[handleResolve] data is falsy:', data);
-        toast({ title: 'Hermes không có VAA', description: 'Hermes trả về data rỗng!', status: 'error' });
-        throw new Error('No VAA data returned from Hermes (data falsy)');
-      }
-      if (!Array.isArray(data) && !Array.isArray(data.vaas)) {
-        console.warn('[handleResolve] data không phải là mảng hoặc có thuộc tính vaas:', data);
-        toast({ title: 'Hermes không có VAA', description: 'Hermes trả về dữ liệu không đúng định dạng!', status: 'error' });
-        throw new Error('No VAA data returned from Hermes (format)');
-      }
-      // Xử lý response Hermes có thể là mảng hoặc object có thuộc tính vaas
+     
       let vaas: string[] = [];
       if (Array.isArray(data)) {
         vaas = data;
       } else if (data && Array.isArray(data.vaas)) {
         vaas = data.vaas;
-      } else {
-        console.warn('[handleResolve] Không tìm thấy vaas hợp lệ trong response:', data);
-        toast({ title: 'Hermes không có VAA', description: 'Hermes trả về dữ liệu không đúng định dạng!', status: 'error' });
-        throw new Error('No VAA data returned from Hermes (format)');
-      }
-      if (!vaas.length || typeof vaas[0] !== 'string' || !vaas[0].length) {
-        console.warn('[handleResolve] vaas không hợp lệ:', vaas);
-        toast({ title: 'Hermes không có VAA', description: 'Hermes trả về vaas không hợp lệ!', status: 'error' });
-        throw new Error('No VAA data returned from Hermes (vaas invalid)');
-      }
+      } 
       console.log('[handleResolve][DEBUG] vaas:', vaas, 'length:', vaas.length, 'typeof vaas[0]:', typeof vaas[0], 'vaas[0] length:', vaas[0]?.length, 'vaas[0] value:', vaas[0]);
 
       const pythPriceUpdate: number[][] = vaas.map((vaa, idx) => {
@@ -431,6 +419,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
         await fetchMarketData();
         await fetchUserPositions();
         setWaitingForResolve(true);
+        clearLocalCache(); // Clear cache after successful resolve
       } catch (err) {
         console.error('[handleResolve] resolveMarket ERROR:', err);
         throw err;
@@ -457,6 +446,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       await fetchMarketData();
       await fetchUserPositions();
       setWaitingForResolve(true);
+      clearLocalCache(); // Clear cache after successful claim
     } catch (error: unknown) {
       toast({ title: 'Claim failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -479,6 +469,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       await fetchMarketData();
       await fetchUserPositions();
       setWaitingForResolve(true);
+      clearLocalCache(); // Clear cache after successful withdraw fee
     } catch (error: unknown) {
       toast({ title: 'Withdraw fee failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -648,8 +639,8 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 </Flex>
               )}
 
-              {/* Nút Claim chỉ hiển thị khi !hasClaimed && claimableAmount > 0 */}
-              {phase === Phase.Maturity && isWinner && claimableAmount > 0 && !hasClaimed && (
+              {/* Nút Claim chỉ hiển thị khi market đã resolved, user còn bid, claimableAmount > 0, và chưa claim */}
+              {phase === Phase.Maturity && isWinner && claimableAmount > 0 && !hasClaimed && (Number(userPositions.long) > 0 || Number(userPositions.short) > 0) && (
                 <Button
                   onClick={handleClaim}
                   colorScheme="yellow"
