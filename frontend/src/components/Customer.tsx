@@ -48,6 +48,34 @@ function base64ToBytes(base64: string): number[] {
   return arr;
 }
 
+// Helper: tính claimable amount
+const getClaimableAmount = (market: MarketInfoType | null, userPositions: { long: number; short: number }) => {
+  if (!market || !market.is_resolved || !userPositions.long || !userPositions.short) return 0;
+  const userLong = userPositions.long;
+  const userShort = userPositions.short;
+  const result = Number(market.result);
+  const longAmount = Number(market.long_amount);
+  const shortAmount = Number(market.short_amount);
+  const feePercentage = Number(market.fee_percentage);
+  let rawAmount = 0;
+  if (result === 0 && userLong > 0) {
+    // LONG win
+    const winnerPool = longAmount;
+    const winningPool = shortAmount;
+    rawAmount = userLong + Math.floor((userLong * winningPool) / winnerPool);
+  } else if (result === 1 && userShort > 0) {
+    // SHORT win
+    const winnerPool = shortAmount;
+    const winningPool = longAmount;
+    rawAmount = userShort + Math.floor((userShort * winningPool) / winnerPool);
+  } else {
+    return 0;
+  }
+  // Fee: (fee_percentage * raw_amount) / 1000
+  const fee = Math.floor((feePercentage * rawAmount) / 1000);
+  return rawAmount - fee;
+};
+
 const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const { connected, account, signAndSubmitTransaction } = useWallet();
   const toast = useToast();
@@ -71,6 +99,27 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     return () => clearInterval(interval);
   }, []);
 
+  const [forcePolling, setForcePolling] = useState(false);
+  // Thêm state để lưu trạng thái trước khi thao tác
+  const [prevMarket, setPrevMarket] = useState<MarketInfoType | null>(null);
+  const [prevClaimable, setPrevClaimable] = useState<number>(0);
+  const [prevFeeWithdrawn, setPrevFeeWithdrawn] = useState<boolean>(false);
+  const [waitingForResolve, setWaitingForResolve] = useState(false);
+  // Thêm state để kiểm tra đã claim chưa
+  const [hasClaimed, setHasClaimed] = useState(false);
+
+  // Di chuyển thực tế các khai báo sau lên phía trên useEffect polling market data:
+  const claimableAmount = useMemo(() => getClaimableAmount(market, userPositions), [market, userPositions]);
+  const isWinner = useMemo(() => claimableAmount > 0, [claimableAmount]);
+  const isOwner = useMemo(() => account?.address && market?.creator && account.address.toString().toLowerCase() === market.creator.toLowerCase(), [account?.address, market?.creator]);
+  const canWithdrawFee = useMemo(() => isOwner && market?.is_resolved && !market?.fee_withdrawn, [isOwner, market]);
+  const withdrawFeeAmount = useMemo(() => {
+    if (!market) return 0;
+    const feePercentage = Number(market.fee_percentage);
+    const totalAmount = Number(market.total_amount);
+    return Math.floor((feePercentage * totalAmount) / 1000);
+  }, [market]);
+
   // Fetch user positions - remove dependency on fetchMarketData
   const fetchUserPositions = useCallback(async () => {
     if (connected && account?.address && contractAddress) {
@@ -91,12 +140,12 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
   }, [connected, account, contractAddress]);
 
-  // Fetch market data and update state - remove fetchUserPositions dependency
-  const fetchMarketData = useCallback(async () => {
+  // Sửa fetchMarketData để nhận thêm forceRefresh (mặc định false)
+  const fetchMarketData = useCallback(async (forceRefresh: boolean = false) => {
     if (!contractAddress) return;
     setIsLoading(true);
     try {
-      const details = await getMarketDetails(contractAddress);
+      const details = await getMarketDetails(contractAddress, forceRefresh);
       if (!details) {
         setIsLoading(false);
         toast({ title: 'Market not found', description: 'This market does not exist or has been removed.', status: 'error' });
@@ -115,27 +164,48 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       // Always use getStandard
       const pairName = getStandardPairName(details.pair_name);
       setAssetLogo(`/images/${pairName.split('/')[0].toLowerCase()}-logo.png`);
+      if (waitingForResolve && details.is_resolved) setWaitingForResolve(false);
     } catch (error) {
       console.error('fetchMarketData error:', error);
       toast({ title: 'Error', description: 'Could not fetch market data', status: 'error' });
     } finally {
       setIsLoading(false);
     }
-  }, [contractAddress, toast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractAddress, toast, waitingForResolve]);
 
-  // Polling market data only when chưa resolved
+
   useEffect(() => {
     if (!contractAddress) return;
     let interval: NodeJS.Timeout | null = null;
+    let timeout: NodeJS.Timeout | null = null;
     const poll = async () => {
-      await fetchMarketData();
+      await fetchMarketData(waitingForResolve);
+      await fetchUserPositions();
     };
     poll();
-    if (!market?.is_resolved) {
-      interval = setInterval(poll, 5000);
+    let polling = false;
+    if (waitingForResolve || !market?.is_resolved) {
+      polling = true;
     }
-    return () => { if (interval) clearInterval(interval); };
-  }, [contractAddress, fetchMarketData, market?.is_resolved]);
+    
+    if (waitingForResolve && prevMarket) {
+      if (prevMarket.is_resolved !== market?.is_resolved && Number(market?.final_price) > 0) polling = false;
+      if (prevClaimable !== claimableAmount) polling = false;
+      if (prevFeeWithdrawn !== market?.fee_withdrawn) polling = false;
+    }
+    if (polling) {
+      interval = setInterval(poll, 2000);
+      timeout = setTimeout(() => setWaitingForResolve(false), 30000);
+    } else {
+      setWaitingForResolve(false);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractAddress, fetchMarketData, market?.is_resolved, waitingForResolve, claimableAmount, market?.fee_withdrawn, market?.final_price]);
 
   // Fetch position history for the market - build from BidEvents
   useEffect(() => {
@@ -200,6 +270,16 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
   }, [market, connected, account, fetchUserPositions]);
 
+  // Cập nhật hasClaimed sau mỗi fetchUserPositions
+  useEffect(() => {
+    if (!account?.address || !contractAddress) return;
+    (async () => {
+      const [long, short] = await getUserBid(account.address.toString(), contractAddress);
+      // Nếu user không còn bid nào (sau khi claim xong contract sẽ xóa bid), coi như đã claim
+      setHasClaimed(Number(long) === 0 && Number(short) === 0);
+    })();
+  }, [account?.address, contractAddress, userPositions.long, userPositions.short, claimableAmount]);
+
   // Fetch asset price
   useEffect(() => {
     if (!market?.pair_name) return;
@@ -226,46 +306,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
   }, [market?.pair_name]);
 
-  // Helper: tính claimable amount
-  const getClaimableAmount = () => {
-    if (!market || !market.is_resolved || !account?.address) return 0;
-    const userLong = userPositions.long;
-    const userShort = userPositions.short;
-    const result = Number(market.result);
-    const longAmount = Number(market.long_amount);
-    const shortAmount = Number(market.short_amount);
-    const feePercentage = Number(market.fee_percentage);
-    let rawAmount = 0;
-    if (result === 0 && userLong > 0) {
-      // LONG win
-      const winnerPool = longAmount;
-      const winningPool = shortAmount;
-      rawAmount = userLong + Math.floor((userLong * winningPool) / winnerPool);
-    } else if (result === 1 && userShort > 0) {
-      // SHORT win
-      const winnerPool = shortAmount;
-      const winningPool = longAmount;
-      rawAmount = userShort + Math.floor((userShort * winningPool) / winnerPool);
-    } else {
-      return 0;
-    }
-    // Fee: (fee_percentage * raw_amount) / 1000
-    const fee = Math.floor((feePercentage * rawAmount) / 1000);
-    return rawAmount - fee;
-  };
-
   // Memoized derived values for correct UI update
-  const claimableAmount = useMemo(() => getClaimableAmount(), [market, userPositions, account]);
-  const isWinner = useMemo(() => claimableAmount > 0, [claimableAmount]);
-  const isOwner = useMemo(() => account?.address && market?.creator && account.address.toString().toLowerCase() === market.creator.toLowerCase(), [account?.address, market?.creator]);
-  const canWithdrawFee = useMemo(() => isOwner && market?.is_resolved && !market?.fee_withdrawn, [isOwner, market]);
-  const withdrawFeeAmount = useMemo(() => {
-    if (!market) return 0;
-    const feePercentage = Number(market.fee_percentage);
-    const totalAmount = Number(market.total_amount);
-    return Math.floor((feePercentage * totalAmount) / 1000);
-  }, [market]);
-
   // Derived values
   const maturityTimeMs = market?.maturity_time ? Number(market.maturity_time) * 1000 : 0;
   const canResolve = phase === Phase.Maturity 
@@ -315,6 +356,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       return;
     }
     setIsSubmitting(true);
+    setPrevMarket(market);
     try {
       // Detect chain (simple heuristic)
       let chain = 'mainnet';
@@ -330,19 +372,6 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       if (typeof priceFeedId !== 'string' || priceFeedId.length !== 64) {
         throw new Error('Invalid price_feed_id for Hermes');
       }
-      // Mainnet price_feed_id ETH/USD
-      const mainnetETH = 'ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace';
-
-      const testnetETH = '0x2f415e8b0c8c7c3d2e2ea02ca22964d784b339a9d46a02dd68d1718ff1cd58f0'.replace('0x','');
-      if (chain !== 'mainnet' && priceFeedId === mainnetETH) {
-        console.warn('[handleResolve] CẢNH BÁO: Bạn đang dùng price_feed_id mainnet trên', chain, '. Hãy dùng price_feed_id đúng của', chain, 'theo docs Pyth!');
-        toast({ title: 'Cảnh báo', description: 'Bạn đang dùng price_feed_id mainnet trên ' + chain + '. Hãy dùng đúng price_feed_id của ' + chain + '!', status: 'warning' });
-      }
-      if (chain === 'mainnet' && priceFeedId === testnetETH) {
-        console.warn('[handleResolve] CẢNH BÁO: Bạn đang dùng price_feed_id testnet/devnet trên mainnet. Hãy dùng price_feed_id mainnet!');
-        toast({ title: 'Cảnh báo', description: 'Bạn đang dùng price_feed_id testnet/devnet trên mainnet. Hãy dùng đúng price_feed_id mainnet!', status: 'warning' });
-      }
-      console.log('[handleResolve] priceFeedId for Hermes:', priceFeedId, 'chain:', chain);
       // call Hermes API to get latest VAA (pyth_price_update)
       const url = `https://hermes.pyth.network/api/latest_vaas?ids[]=${priceFeedId}`;
       console.log('[handleResolve] Hermes URL:', url);
@@ -385,7 +414,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
         throw new Error('No VAA data returned from Hermes (vaas invalid)');
       }
       console.log('[handleResolve][DEBUG] vaas:', vaas, 'length:', vaas.length, 'typeof vaas[0]:', typeof vaas[0], 'vaas[0] length:', vaas[0]?.length, 'vaas[0] value:', vaas[0]);
-      // Đảm bảo map trả về number[][]
+
       const pythPriceUpdate: number[][] = vaas.map((vaa, idx) => {
         const bytes = base64ToBytes(vaa);
         console.log(`[handleResolve] VAA[${idx}] bytes length:`, bytes.length, 'first:', bytes.slice(0, 8), 'last:', bytes.slice(-8));
@@ -405,7 +434,9 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       toast({ title: 'Market resolve transaction submitted', status: 'success' });
         const details = await getMarketDetails(contractAddress);
         setMarket(details);
-        // fetchMarketData(); // Removed polling after successful resolve
+        await fetchMarketData();
+        await fetchUserPositions();
+        setWaitingForResolve(true);
       } catch (err) {
         console.error('[handleResolve] resolveMarket ERROR:', err);
         throw err;
@@ -425,10 +456,13 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       return;
     }
     setIsSubmitting(true);
+    setPrevClaimable(claimableAmount);
     try {
       await claim(signAndSubmitTransaction, contractAddress);
       toast({ title: 'Claim transaction submitted', status: 'success' });
       await fetchMarketData();
+      await fetchUserPositions();
+      setWaitingForResolve(true);
     } catch (error: unknown) {
       toast({ title: 'Claim failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -444,10 +478,13 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       return;
     }
     setIsSubmitting(true);
+    setPrevFeeWithdrawn(!!market?.fee_withdrawn);
     try {
       await withdrawFee(signAndSubmitTransaction, contractAddress);
       toast({ title: 'Withdraw fee transaction submitted', status: 'success' });
       await fetchMarketData();
+      await fetchUserPositions();
+      setWaitingForResolve(true);
     } catch (error: unknown) {
       toast({ title: 'Withdraw fee failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
     } finally {
@@ -617,7 +654,8 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 </Flex>
               )}
 
-              {phase === Phase.Maturity && isWinner && claimableAmount > 0 && (
+              {/* Nút Claim chỉ hiển thị khi !hasClaimed && claimableAmount > 0 */}
+              {phase === Phase.Maturity && isWinner && claimableAmount > 0 && !hasClaimed && (
                 <Button
                   onClick={handleClaim}
                   colorScheme="yellow"
@@ -633,7 +671,8 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                   Claim Rewards
                 </Button>
               )}
-              {phase === Phase.Maturity && canWithdrawFee && withdrawFeeAmount > 0 && (
+              {/* Nút Withdraw Fee chỉ hiển thị khi market.fee_withdrawn === false */}
+              {phase === Phase.Maturity && canWithdrawFee && !market?.fee_withdrawn && withdrawFeeAmount > 0 && (
                 <Button
                   onClick={handleWithdrawFee}
                   colorScheme="blue"

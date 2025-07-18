@@ -510,13 +510,16 @@ const News: React.FC = () => {
                         mr={2}
                         display="flex"
                         alignItems="center"
+                        overflow="hidden"
+                        borderTopLeftRadius="8px"
+                        borderTopRightRadius="8px"
                       >
                         <Image
                           src={event.proof}
                           alt="event"
                           width={44}
                           height={44}
-                          style={{ borderRadius: '8px', objectFit: 'cover' }}
+                          style={{ borderRadius: '8px', objectFit: 'cover', width: '44px', height: '44px', display: 'block' }}
                         />
                       </Box>
                     )}
@@ -532,7 +535,7 @@ const News: React.FC = () => {
                       </Text>
                       {/* Category badge */}
                       {event.categories && event.categories.length > 0 && (
-                        <HStack spacing={1} mb={1} mt={1}>
+                        <HStack spacing={1} mt={1}>
                           {event.categories.map((cat: { id: string; name: string }) => (
                             <Box
                               key={cat.id}

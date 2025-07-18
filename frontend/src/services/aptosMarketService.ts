@@ -284,7 +284,7 @@ export async function deployMarket(
 ): Promise<string> {
   try {
     const {
-      pairName, // pairName ở đây là price_feed_id dạng hex string (64 ký tự)
+      pairName, 
       strikePrice,
       feePercentage,
       biddingStartTime,
@@ -355,9 +355,9 @@ export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
 
 const marketDetailsCache: Record<string, { data: MarketInfo | null, ts: number, rateLimitedUntil?: number }> = {};
 
-export async function getMarketDetails(marketObjectAddress: string): Promise<MarketInfo | null> {
+export async function getMarketDetails(marketObjectAddress: string, forceRefresh: boolean = false): Promise<MarketInfo | null> {
   const now = Date.now();
-  if (marketDetailsCache[marketObjectAddress] && now - marketDetailsCache[marketObjectAddress].ts < 3 * 60 * 1000) {
+  if (!forceRefresh && marketDetailsCache[marketObjectAddress] && now - marketDetailsCache[marketObjectAddress].ts < 3 * 60 * 1000) {
     return marketDetailsCache[marketObjectAddress].data;
   }
  
