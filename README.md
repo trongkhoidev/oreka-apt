@@ -170,8 +170,8 @@ oreka/
 ---
 
 ## License
-
-##IDEA
-github: https://github.com/mangekyou-labs/oreka
-
 This project is licensed under the MIT License.
+
+## Originality
+The original [Oreka](https://github.com/mangekyou-labs/oreka) inspires this project
+
