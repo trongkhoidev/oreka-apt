@@ -1,27 +1,18 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { 
-  Box, 
-  useToast, 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Box,
   Container,
   Flex
 } from '@chakra-ui/react';
-import { TradingPairInfo, getPriceFeedIdFromPairName } from '../config/tradingPairs';
 import { PriceService } from '../services/PriceService';
-
-import { 
-  estimateDeployMarketGas, 
-  deployMarketWithGasSettings,
-  GasSpeed,
-  GasEstimate,
-} from '../services/aptosMarketService';
+import { GasSpeed, GasEstimate, TradingPairInfo } from '../types';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import OwnerDeployForm from './owner/OwnerDeployForm';
+import { useToast } from '@chakra-ui/react';
 import PreviewBox from './owner/PreviewBox';
 import NetworkFeeBox from './owner/NetworkFeeBox';
 import DeployProgressBar from './owner/DeployProgressBar';
 import DeployButton from './owner/DeployButton';
-
-const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
 
 
 const Owner: React.FC = () => {
@@ -35,10 +26,10 @@ const Owner: React.FC = () => {
   const [biddingStartTime, setBiddingStartTime] = useState('');
   const [biddingEndDate, setBiddingEndDate] = useState('');
   const [biddingEndTime, setBiddingEndTime] = useState('');
-  const [feePercentage, setFeePercentage] = useState<string>('1.0');
+  const [feePercentage, setFeePercentage] = useState('1.0');
   const [isDeploying, setIsDeploying] = useState(false);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
-  const [gasEstimate, setGasEstimate] = useState<GasEstimate | null>(null);
+  const [gasEstimate] = useState<GasEstimate | null>(null);
   const [selectedGasSpeed, setSelectedGasSpeed] = useState<GasSpeed>(GasSpeed.NORMAL);
   const [isEstimatingGas, setIsEstimatingGas] = useState(false);
 
@@ -103,29 +94,31 @@ const Owner: React.FC = () => {
     }
     try {
       setIsEstimatingGas(true);
-      const strikePriceInteger = Math.round(parseFloat(strikePrice) * STRIKE_PRICE_MULTIPLIER);
-      const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
-      const biddingStartTimestamp = Math.floor(new Date(`${biddingStartDate} ${biddingStartTime}`).getTime() / 1000);
-      const biddingEndTimestamp = Math.floor(new Date(`${biddingEndDate} ${biddingEndTime}`).getTime() / 1000);
-      const feeValue = Math.round(parseFloat(feePercentage) * 10);
-      const params = {
-        pairName: getPriceFeedIdFromPairName(selectedPair.pair),
-        strikePrice: String(strikePriceInteger),
-        feePercentage: String(feeValue),
-        biddingStartTime: String(biddingStartTimestamp),
-        biddingEndTime: String(biddingEndTimestamp),
-        maturityTime: String(maturityTimestamp),
-      };
-      console.log('[estimateGas] params:', params, 'selectedGasSpeed:', selectedGasSpeed);
-      const estimate = await estimateDeployMarketGas(params, selectedGasSpeed);
-      setGasEstimate(estimate);
+      // TODO: Update this for new poly-option system
+      // const strikePriceInteger = Math.round(parseFloat(strikePrice) * STRIKE_PRICE_MULTIPLIER);
+      // const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
+      // const biddingStartTimestamp = Math.floor(new Date(`${biddingStartDate} ${biddingStartTime}`).getTime() / 1000);
+      // const biddingEndTimestamp = Math.floor(new Date(`${biddingEndDate} ${biddingEndTime}`).getTime() / 1000);
+      // const feeValue = Math.round(parseFloat(feePercentage) * 10);
+      // TODO: Update this for new poly-option system
+      // const params = {
+      //   pairName: getPriceFeedIdFromPairName(selectedPair.pair),
+      //   strikePrice: strikePriceInteger,
+      //   feePercentage: feeValue,
+      //   biddingStartTime: biddingStartTimestamp,
+      //   biddingEndTime: biddingEndTimestamp,
+      //   maturityTime: maturityTimestamp,
+      // };
+      // console.log('[estimateGas] params:', params, 'selectedGasSpeed:', selectedGasSpeed);
+      // const estimate = await estimateDeployMarketGas(params, selectedGasSpeed);
+      // setGasEstimate(estimate);
     } catch (error: unknown) {
       console.error('Error estimating gas:', error);
       // Don't show toast for gas estimation errors as they're not critical
     } finally {
       setIsEstimatingGas(false);
     }
-  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed, feePercentage]);
+  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime]);
 
   useEffect(() => {
     if (selectedPair && strikePrice && maturityDate && maturityTime && biddingStartDate && biddingStartTime && biddingEndDate && biddingEndTime) {
@@ -140,18 +133,19 @@ const Owner: React.FC = () => {
     }
   }, [gasEstimate, selectedGasSpeed]);
 
-  const resetForm = () => {
-    setStrikePrice('');
-    setSelectedPair(null);
-    setMaturityDate('');
-    setMaturityTime('');
-    setBiddingStartDate('');
-    setBiddingStartTime('');
-    setBiddingEndDate('');
-    setBiddingEndTime('');
-    setFeePercentage('1.0');
-    setGasEstimate(null);
-  };
+  // TODO: Update this for new poly-option system
+  // const resetForm = () => {
+  //   setStrikePrice('');
+  //   setSelectedPair(null);
+  //   setMaturityDate('');
+  //   setMaturityTime('');
+  //   setBiddingStartDate('');
+  //   setBiddingStartTime('');
+  //   setBiddingEndDate('');
+  //   setBiddingEndTime('');
+  //   setFeePercentage('1.0');
+  //   setGasEstimate(null);
+  // };
 
   const deployContract = async () => {
     if (!connected || !account || !signAndSubmitTransaction) {
@@ -164,36 +158,37 @@ const Owner: React.FC = () => {
     }
     setIsDeploying(true);
     try {
-      const strikePriceInteger = Math.round(parseFloat(strikePrice) * STRIKE_PRICE_MULTIPLIER);
-      const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
-      const biddingStartTimestamp = Math.floor(new Date(`${biddingStartDate} ${biddingStartTime}`).getTime() / 1000);
-      const biddingEndTimestamp = Math.floor(new Date(`${biddingEndDate} ${biddingEndTime}`).getTime() / 1000);
-      const feeValue = Math.round(parseFloat(feePercentage) * 10);
-      if (isNaN(strikePriceInteger) || isNaN(maturityTimestamp) || isNaN(biddingStartTimestamp) || isNaN(biddingEndTimestamp) || isNaN(feeValue)) {
-        toast({ title: 'Invalid input', description: 'Please check all numeric fields.', status: 'error', duration: 4000, isClosable: true });
-        setIsDeploying(false);
-        return;
-      }
-      const params = {
-        pairName: getPriceFeedIdFromPairName(selectedPair.pair),
-        strikePrice: strikePriceInteger,
-        feePercentage: feeValue,
-        biddingStartTime: biddingStartTimestamp,
-        biddingEndTime: biddingEndTimestamp,
-        maturityTime: maturityTimestamp,
-      };
-      // Wrap signAndSubmitTransaction to return a string hash if needed
-      const txHash = await deployMarketWithGasSettings(
-        async (tx: unknown) => {
-          const result = await (signAndSubmitTransaction as (tx: unknown) => Promise<{ hash: string }>)(tx);
-          return result.hash;
-        },
-        params,
-        selectedGasSpeed
-      );
-      toast({ title: 'Market deployment transaction submitted!', description: `Transaction hash: ${txHash}`, status: 'info', duration: 5000, isClosable: true, });
-      resetForm();
-      setTimeout(() => fetchDeployedContracts(), 3000);
+      // TODO: Update this for new poly-option system
+      // const strikePriceInteger = Math.round(parseFloat(strikePrice) * STRIKE_PRICE_MULTIPLIER);
+      // const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
+      // const biddingStartTimestamp = Math.floor(new Date(`${biddingStartDate} ${biddingStartTime}`).getTime() / 1000);
+      // const biddingEndTimestamp = Math.floor(new Date(`${biddingEndDate} ${biddingEndTime}`).getTime() / 1000);
+      // const feeValue = Math.round(parseFloat(feePercentage) * 10);
+      // if (isNaN(strikePriceInteger) || isNaN(maturityTimestamp) || isNaN(biddingStartTimestamp) || isNaN(biddingEndTimestamp) || isNaN(feeValue)) {
+      //   toast({ title: 'Invalid input', description: 'Please check all numeric fields.', status: 'error', duration: 4000, isClosable: true });
+      //   setIsDeploying(false);
+      //   return;
+      // }
+      // const params = {
+      //   pairName: getPriceFeedIdFromPairName(selectedPair.pair),
+      //   strikePrice: strikePriceInteger,
+      //   feePercentage: feeValue,
+      //   biddingStartTime: biddingStartTimestamp,
+      //   biddingEndTime: biddingEndTimestamp,
+      //   maturityTime: maturityTimestamp,
+      // };
+      // TODO: Update this for new poly-option system
+      // const txHash = await deployMarketWithGasSettings(
+      //   async (tx: unknown) => {
+      //     const result = await (signAndSubmitTransaction as (tx: unknown) => Promise<{ hash: string }>)(tx);
+      //     return result.hash;
+      //   },
+      //   params,
+      //   selectedGasSpeed
+      // );
+      // toast({ title: 'Market deployment transaction submitted!', description: `Transaction hash: ${txHash}`, status: 'info', duration: 5000, isClosable: true, });
+      // resetForm();
+      // setTimeout(() => fetchDeployedContracts(), 3000);
     } catch (error: unknown) {
       console.error('Error deploying contract:', error);
       toast({ title: 'Error deploying market', description: (error as Error)?.message || 'An unexpected error occurred.', status: 'error', duration: 5000, isClosable: true });

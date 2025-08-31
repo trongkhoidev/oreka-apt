@@ -1,0 +1,162 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Oreka Crypto v2 - Platform Overview",
+    "tags": ["oreka", "crypto", "betting", "aptos"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Market Performance",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "oreka_markets_created_total",
+            "legendFormat": "Total Markets"
+          },
+          {
+            "expr": "oreka_markets_resolved_total",
+            "legendFormat": "Resolved Markets"
+          },
+          {
+            "expr": "oreka_markets_void_total",
+            "legendFormat": "Void Markets"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "displayMode": "list"
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Betting Volume",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(oreka_betting_volume_total[5m])",
+            "legendFormat": "Betting Volume (5m)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "lineWidth": 2
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "User Activity",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "oreka_active_users_total",
+            "legendFormat": "Active Users"
+          },
+          {
+            "expr": "oreka_total_bets_placed",
+            "legendFormat": "Total Bets"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "displayMode": "list"
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Treasury Balance",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "oreka_treasury_apt_balance",
+            "legendFormat": "APT Balance"
+          },
+          {
+            "expr": "oreka_treasury_usdc_balance",
+            "legendFormat": "USDC Balance"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "displayMode": "gauge"
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "CLMM Performance",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "oreka_clmm_total_deposited",
+            "legendFormat": "Total Deposited"
+          },
+          {
+            "expr": "oreka_clmm_total_yield",
+            "legendFormat": "Total Yield"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "lineWidth": 2
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "ORK Token Distribution",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "oreka_ork_distributed_total",
+            "legendFormat": "Distributed ORK"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "displayMode": "pie"
+            }
+          }
+        }
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s"
+  }
+}

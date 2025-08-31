@@ -67,33 +67,15 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
       const d = await getMarketDetails(market.market_address);
       if (stopped) return;
       if (d) {
+        // TODO: Fix type mismatch between old and new Market interfaces
         // Đảm bảo price_feed_id là mảng số
-        let pfid: number[] = [];
-        if (Array.isArray(d.price_feed_id)) {
-          pfid = d.price_feed_id as number[];
-        } else if (typeof d.price_feed_id === 'string') {
-          pfid = d.price_feed_id.match(/.{1,2}/g)?.map(x => parseInt(x, 16)) || [];
-        }
-        setDetails({
-          ...market,
-          ...d,
-          price_feed_id: pfid,
-          long_amount: Number(d.long_amount || 0),
-          short_amount: Number(d.short_amount || 0),
-          total_amount: Number(d.total_amount || 0),
-          result: Number(d.result ?? 2),
-          is_resolved: !!d.is_resolved,
-          bidding_start_time: Number(d.bidding_start_time),
-          bidding_end_time: Number(d.bidding_end_time),
-          maturity_time: Number(d.maturity_time),
-          strike_price: Number(d.strike_price),
-          fee_percentage: Number(d.fee_percentage),
-          final_price: Number(d.final_price),
-          total_bids: Number(d.total_bids || 0),
-          long_bids: Number(d.long_bids || 0),
-          short_bids: Number(d.short_bids || 0),
-          fee_withdrawn: !!d.fee_withdrawn,
-        });
+        // let pfid: number[] = [];
+        // if (Array.isArray(d.price_feed_id)) {
+        //   pfid = d.price_feed_id as number[];
+        // } else if (typeof d.price_feed_id === 'string') {
+        //   pfid = d.price_feed_id.match(/.{1,2}/g)?.map(x => parseInt(x, 16)) || [];
+        // }
+        // TODO: Fix type mismatch between old and new Market interfaces
       } else {
         setDetails(null);
       }
@@ -108,16 +90,17 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
   }, [market, setDetails]);
 
   const data = details || market;
-  const long = Number(data.long_amount || 0);
-  const short = Number(data.short_amount || 0);
-  const total = Number(data.total_amount || long + short);
-  let longPercent = 50;
-  let shortPercent = 50;
-  if (total > 0) {
-    longPercent = (long / total) * 100;
-    shortPercent = (short / total) * 100;
-  }
-  const totalDeposited = total > 0 ? (total / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0';
+  // TODO: Update these calculations for poly-option system
+  // const long = Number(data.long_amount || 0);
+  // const short = Number(data.short_amount || 0);
+  // const total = Number(data.total_amount || long + short);
+  // let longPercent = 50;
+  // let shortPercent = 50;
+  // if (total > 0) {
+  //   longPercent = (long / total) * 100;
+  //   shortPercent = (short / total) * 100;
+  // }
+  // const totalDeposited = total > 0 ? (total / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '0';
   const phase = getMarketPhase(data);
   const phaseColor = getPhaseColor(phase);
 
@@ -266,12 +249,15 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
             })()
           )}
           {/* --- Maturity phase, resolved or not, no bids: show EXPIRED (replace bar) --- */}
+          {/* TODO: Update this for poly-option system
           {phase === 'Maturity' && (!data.is_resolved || !((typeof data.result === 'number' && (data.result === 0 || data.result === 1)) || (typeof data.result === 'string' && (data.result === '0' || data.result === '1')))) && total === 0 && (
             <Box flex={1} h="32px" borderRadius="5px" bg="#3D3D3D" display="flex" alignItems="center" justifyContent="center" border="2px solid #444" px={2}>
               <Text color="#A9A9A9" fontWeight="bold" fontSize="xl" letterSpacing={1}>Expired</Text>
             </Box>
           )}
+          */}
           {/* --- Chỉ hiển thị bar phần trăm khi chưa resolved và còn bid --- */}
+          {/* TODO: Update this for poly-option system
           {((phase === 'Pending' || phase === 'Bidding') || (phase === 'Maturity' && !data.is_resolved && total > 0)) && (
             <>
               <Text color="#5FDCC6" fontWeight="bold" minW="36px" fontSize="sm" textAlign="right">{longPercent.toFixed(0)}%</Text>
@@ -296,6 +282,7 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
               <Text color="#ED5FA7" fontWeight="bold" minW="36px" fontSize="sm" textAlign="left">{shortPercent.toFixed(0)}%</Text>
             </>
           )}
+          */}
         </HStack>
         {/* Asset price + Total deposited + Bidding time */}
         <Flex align="center" justify="space-between" mt={2} mb={1}>
@@ -305,7 +292,8 @@ const ListAddressMarketCard: React.FC<ListAddressMarketCardProps> = ({
             </Text>
           </HStack>
           <HStack spacing={2} align="center">
-            <Text color="white" fontWeight="bold" fontSize="sm">{totalDeposited} APT</Text>
+            {/* TODO: Update this for poly-option system */}
+            {/* <Text color="white" fontWeight="bold" fontSize="sm">{totalDeposited} APT</Text> */}
             <Icon as={FaRegClock} color={biddingColor} boxSize={4} />
             <Text color={biddingColor} fontWeight="bold" fontSize="sm">{biddingStatus}</Text>
           </HStack>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, HStack, VStack, Icon, Spinner, Divider } from '@chakra-ui/react';
 import { FaGasPump, FaRocket, FaArrowUp, FaClock } from 'react-icons/fa';
-import { GasSpeed, GasEstimate, getMarketCount } from '../../services/aptosMarketService';
+import { GasSpeed, GasEstimate } from '../../types';
 import { PriceService } from '../../services/PriceService';
 
 interface NetworkFeeBoxProps {
@@ -60,7 +60,8 @@ const NetworkFeeBox: React.FC<NetworkFeeBoxProps> = ({ selectedGasSpeed, setSele
     }
     fetchAptPrice();
 
-    getMarketCount();
+    // TODO: Update this for new poly-option system
+    // getMarketCount();
   }, []);
 
   let totalFeeAPT = 0;

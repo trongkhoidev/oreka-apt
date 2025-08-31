@@ -1,0 +1,156 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for indexing
+  postgres:
+    image: postgres:15-alpine
+    container_name: oreka-postgres
+    environment:
+      POSTGRES_DB: oreka
+      POSTGRES_USER: oreka_user
+      POSTGRES_PASSWORD: oreka_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - oreka-network
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: oreka-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - oreka-network
+
+  # Nodit indexing service
+  nodit-indexer:
+    image: nodit/oreka-indexer:latest
+    container_name: oreka-nodit-indexer
+    environment:
+      - DATABASE_URL=postgresql://oreka_user:oreka_password@postgres:5432/oreka
+      - REDIS_URL=redis://redis:6379
+      - APTOS_NODE_URL=${APTOS_NODE_URL}
+      - ACCOUNT_ADDRESS=${ACCOUNT_ADDRESS}
+      - WEBHOOK_URL=${NODIT_WEBHOOK_URL}
+      - WEBHOOK_SECRET=${NODIT_WEBHOOK_SECRET}
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - oreka-network
+    restart: unless-stopped
+
+  # Hyperion CLMM service
+  hyperion-clmm:
+    image: hyperion/oreka-clmm:latest
+    container_name: oreka-hyperion-clmm
+    environment:
+      - HYPERION_API_KEY=${HYPERION_API_KEY}
+      - HYPERION_API_URL=${HYPERION_API_URL}
+      - APTOS_NODE_URL=${APTOS_NODE_URL}
+      - ACCOUNT_ADDRESS=${ACCOUNT_ADDRESS}
+    ports:
+      - "3002:3002"
+    networks:
+      - oreka-network
+    restart: unless-stopped
+
+  # Circle USDC integration service
+  circle-usdc:
+    image: circle/oreka-usdc:latest
+    container_name: oreka-circle-usdc
+    environment:
+      - CIRCLE_API_KEY=${CIRCLE_API_KEY}
+      - CIRCLE_API_URL=${CIRCLE_API_URL}
+      - USDC_CONTRACT_ADDRESS=${CIRCLE_USDC_CONTRACT_ADDRESS}
+      - APTOS_NODE_URL=${APTOS_NODE_URL}
+    ports:
+      - "3003:3003"
+    networks:
+      - oreka-network
+    restart: unless-stopped
+
+  # API Gateway
+  api-gateway:
+    image: oreka/api-gateway:latest
+    container_name: oreka-api-gateway
+    environment:
+      - API_PORT=${API_PORT:-3000}
+      - API_HOST=${API_HOST:-0.0.0.0}
+      - RATE_LIMIT=${API_RATE_LIMIT:-100}
+      - CORS_ORIGINS=${API_CORS_ORIGINS:-*}
+      - APTOS_NODE_URL=${APTOS_NODE_URL}
+      - ACCOUNT_ADDRESS=${ACCOUNT_ADDRESS}
+    ports:
+      - "${API_PORT:-3000}:${API_PORT:-3000}"
+    depends_on:
+      - postgres
+      - redis
+      - nodit-indexer
+      - hyperion-clmm
+      - circle-usdc
+    networks:
+      - oreka-network
+    restart: unless-stopped
+
+  # Monitoring and metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: oreka-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - oreka-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: oreka-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - "3004:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - oreka-network
+    restart: unless-stopped
+
+  # Health check service
+  health-check:
+    image: oreka/health-check:latest
+    container_name: oreka-health-check
+    environment:
+      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-30}
+      - ALERTING_ENABLED=${ALERTING_ENABLED:-true}
+    depends_on:
+      - api-gateway
+      - postgres
+      - redis
+    networks:
+      - oreka-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  oreka-network:
+    driver: bridge

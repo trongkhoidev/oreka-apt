@@ -2,16 +2,14 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Text,
-  Button,
   Spinner,
   Flex,
   SimpleGrid,
 } from '@chakra-ui/react';
-import {  getAllMarkets, getMarketDetails } from '../services/aptosMarketService';
 import { PriceService } from '../services/PriceService';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { useRouter } from 'next/router';
-import { getAvailableTradingPairs, getBinanceSymbolFromPairName, getPairAndSymbolFromPriceFeedId } from '../config/tradingPairs';
+import { getAvailableTradingPairs, getBinanceSymbolFromPairName } from '../config/tradingPairs';
 import ListAddressMarketCard from './listaddressowner/ListAddressMarketCard';
 import ListAddressTabs from './listaddressowner/ListAddressTabs';
 import { hasUserHoldings } from '../services/userHoldingsService';
@@ -48,20 +46,18 @@ const ListAddressOwner: React.FC = () => {
   const [filteredMarkets, setFilteredMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm] = useState('');
-  const [filter, setFilter] = useState<'all' | 'my' | 'active' | 'resolved' | 'holdings'>('all');
+  const [filter, setFilter] = useState<FilterType>('all');
   const [pairFilter, setPairFilter] = useState('');
-  const [page, setPage] = useState(1);
-  const contractsPerPage = 16;
   const [pairPrices, setPairPrices] = useState<Record<string, number>>({});
   
   const router = useRouter();
 
-
-  type FilterType = 'all' | 'active' | 'resolved' | 'my' | 'holdings';
+  type FilterType = 'all' | 'active' | 'expired' | 'close' | 'my' | 'holdings';
   const tabList: { label: string; value: FilterType }[] = [
     { label: 'All Markets', value: 'all' },
-    { label: 'Quests', value: 'active' },
-    { label: 'Results', value: 'resolved' },
+    { label: 'Active', value: 'active' },
+    { label: 'Expired', value: 'expired' },
+    { label: 'Close', value: 'close' },
     { label: 'My Markets', value: 'my' },
     { label: 'My Holdings', value: 'holdings' },
   ];
@@ -79,7 +75,10 @@ const ListAddressOwner: React.FC = () => {
     } else if (filter === 'active') {
       const now = Math.floor(Date.now() / 1000);
       source = markets.filter(market => now >= market.bidding_start_time && now < market.bidding_end_time && !market.is_resolved);
-    } else if (filter === 'resolved') {
+    } else if (filter === 'expired') {
+      const now = Math.floor(Date.now() / 1000);
+      source = markets.filter(market => now >= market.bidding_end_time);
+    } else if (filter === 'close') {
       source = markets.filter(market => market.is_resolved);
     }
     return Array.from(new Set(source.map(m => m.pair_name)));
@@ -102,55 +101,60 @@ const ListAddressOwner: React.FC = () => {
         } catch {}
       }
       try {
-        const marketInfos: { market_address: string; owner: string; pair_name: string; strike_price: string; fee_percentage: string; total_bids: string; long_bids: string; short_bids: string; total_amount: string; long_amount: string; short_amount: string; result: string; is_resolved: boolean; bidding_start_time: string; bidding_end_time: string; maturity_time: string; final_price: string; fee_withdrawn: boolean }[] = await getAllMarkets();
-        if (!marketInfos || marketInfos.length === 0) {
-          setMarkets([]);
-          localStorage.setItem(cacheKey, JSON.stringify({ data: [], ts: Date.now() }));
-          setLoading(false);
-          return;
-        }
-        const detailsArr = await Promise.all(
-          marketInfos.map(async (info) => {
-            let details: unknown = null;
-            try {
-              details = await getMarketDetails(info.market_address);
-            } catch (e) {
-              console.warn('[ListAddressOwner] Failed to get market details for:', info.market_address, e);
-            }
-            return { info, details };
-          })
-        );
-        const marketsData: Market[] = detailsArr.map(({ info, details }) => {
-          const d = (details || info) as Market;
-          const priceFeedIdStr = typeof d.price_feed_id === 'string' ? d.price_feed_id : Array.isArray(d.price_feed_id) ? d.price_feed_id.join('') : '';
-          const { pair, symbol } = getPairAndSymbolFromPriceFeedId(priceFeedIdStr);
-          return {
-            creator: d.creator || '',
-            pair_name: pair,
-            symbol,
-            strike_price: Number(d.strike_price) || 0,
-            fee_percentage: Number(d.fee_percentage) || 0,
-            total_bids: Number(d.total_bids) || 0,
-            long_bids: Number(d.long_bids) || 0,
-            short_bids: Number(d.short_bids) || 0,
-            total_amount: Number(d.total_amount) || 0,
-            long_amount: Number(d.long_amount) || 0,
-            short_amount: Number(d.short_amount) || 0,
-            result: Number(d.result) || 2,
-            is_resolved: Boolean(d.is_resolved),
-            bidding_start_time: Number(d.bidding_start_time) || 0,
-            bidding_end_time: Number(d.bidding_end_time) || 0,
-            maturity_time: Number(d.maturity_time) || 0,
-            final_price: Number(d.final_price) || 0,
-            fee_withdrawn: Boolean(d.fee_withdrawn),
-            _key: d.market_address || '',
-            market_address: d.market_address || '',
-            created_at: Number(d.created_at) || 0,
-            price_feed_id: d.price_feed_id,
-          };
-        });
-        setMarkets(marketsData);
-        localStorage.setItem(cacheKey, JSON.stringify({ data: marketsData, ts: Date.now() }));
+        // TODO: Update this to work with new poly-option system
+        // const marketInfos: { market_address: string; owner: string; pair_name: string; strike_price: string; fee_percentage: string; total_bids: string; long_bids: string; short_bids: string; total_amount: string; long_amount: string; short_amount: string; result: string; is_resolved: boolean; bidding_start_time: string; bidding_end_time: string; maturity_time: string; final_price: string; fee_withdrawn: boolean }[] = await getAllMarkets();
+        // if (!marketInfos || marketInfos.length === 0) {
+        //   setMarkets([]);
+        //   localStorage.setItem(cacheKey, JSON.stringify({ data: [], ts: Date.now() }));
+        //   setLoading(false);
+        //   return;
+        // }
+        // const detailsArr = await Promise.all(
+        //   marketInfos.map(async (info) => {
+        //     let details: unknown = null;
+        //     try {
+        //       details = await getMarketDetails(info.market_address);
+        //     } catch (e) {
+        //       console.warn('[ListAddressOwner] Failed to get market details for:', info.market_address, e);
+        //     }
+        //     return { info, details };
+        //   })
+        // );
+        // const marketsData: Market[] = detailsArr.map(({ info, details }) => {
+        //   const d = (details || info) as Market;
+        //   const priceFeedIdStr = typeof d.price_feed_id === 'string' ? d.price_feed_id : Array.isArray(d.price_feed_id) ? d.price_feed_id.join('') : '';
+        //   const { pair, symbol } = getPairAndSymbolFromPriceFeedId(priceFeedIdStr);
+        //   return {
+        //     creator: d.creator || '',
+        //     pair_name: pair,
+        //     symbol,
+        //     strike_price: Number(d.strike_price) || 0,
+        //     fee_percentage: Number(d.fee_percentage) || 0,
+        //     total_bids: Number(d.total_bids) || 0,
+        //     long_bids: Number(d.long_bids) || 0,
+        //     short_bids: Number(d.short_bids) || 0,
+        //     total_amount: Number(d.total_amount) || 0,
+        //     long_amount: Number(d.long_amount) || 0,
+        //     short_amount: Number(d.short_amount) || 0,
+        //     result: Number(d.result) || 2,
+        //     is_resolved: Boolean(d.is_resolved),
+        //     bidding_start_time: Number(d.bidding_start_time) || 0,
+        //     bidding_end_time: Number(d.bidding_end_time) || 0,
+        //     maturity_time: Number(d.maturity_time) || 0,
+        //     final_price: Number(d.final_price) || 0,
+        //     fee_withdrawn: Boolean(d.fee_withdrawn),
+        //     _key: d.market_address || '',
+        //     market_address: d.market_address || '',
+        //     created_at: Number(d.created_at) || 0,
+        //     price_feed_id: d.price_feed_id,
+        //   };
+        // });
+        // setMarkets(marketsData);
+        // localStorage.setItem(cacheKey, JSON.stringify({ data: marketsData, ts: Date.now() }));
+        
+        // Temporary: set empty markets for now
+        setMarkets([]);
+        localStorage.setItem(cacheKey, JSON.stringify({ data: [], ts: Date.now() }));
       } catch (error) {
         console.error('[ListAddressOwner] Error fetching markets:', error);
         setMarkets([]);
@@ -231,9 +235,13 @@ const ListAddressOwner: React.FC = () => {
       filtered = filtered.filter(market => {
         return now >= market.bidding_start_time && now < market.bidding_end_time && !market.is_resolved;
       });
-    } else if (filter === 'resolved') {
+    } else if (filter === 'expired') {
       filtered = filtered.filter(market => {
-        return now > market.maturity_time ;
+        return now >= market.bidding_end_time;
+      });
+    } else if (filter === 'close') {
+      filtered = filtered.filter(market => {
+        return market.is_resolved;
       });
     } else if (filter === 'my') {
       filtered = filtered.filter(market => market.creator.toLowerCase() === walletAddress.toLowerCase());
@@ -249,9 +257,6 @@ const ListAddressOwner: React.FC = () => {
     : filteredMarkets.filter(market => !pairFilter || market.pair_name === pairFilter);
 
   const sorted = [...filtered].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-
-  const totalPages = Math.ceil(sorted.length / contractsPerPage);
-  const paginatedMarkets = sorted.slice((page - 1) * contractsPerPage, page * contractsPerPage);
 
   // Polling fetch price for all unique trading pairs every 20s
   useEffect(() => {
@@ -333,23 +338,13 @@ const ListAddressOwner: React.FC = () => {
     return (Math.abs(hash) % max) + 1;
   }
 
-  useEffect(() => {
-    const pageFromUrl = Number(router.query.page || 1);
-    if (pageFromUrl !== page) {
-      setPage(pageFromUrl > 0 ? pageFromUrl : 1);
-    }
-  }, [router.query.page, page]);
 
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-    router.push(`/listaddress/${newPage}`, undefined, { shallow: true });
-  };
 
 
 
   return (
     <Flex minH="100vh" bg="dark.900">
-      <Flex direction="column" flex={1} minH="100vh" bg="dark.900">
+      <Flex direction="column" flex={1} minH="100vh" bg="dark.900" maxW="100%" mx="auto" w="full">
         {/* Tabs and filter */}
         <ListAddressTabs
           tabList={tabList}
@@ -359,18 +354,18 @@ const ListAddressOwner: React.FC = () => {
           setPairFilter={(v: string) => setPairFilter(v)}
           uniquePairs={uniquePairs}
         />
-        {/* Main Grid + Pagination */}
-        <Flex direction="column"   flex={1} minH={0} px={{ base: 2, md: 2 }}>
+        {/* Main Grid */}
+        <Flex direction="column" flex={1} minH={0} px={{ base: 0, md: 1, lg: 1 }}>
           <Box flex={1} minH={0}>
-            <Box bg="dark.800" borderRadius="lg" overflow="hidden" minH="400px">
+            <Box bg="dark.800" borderRadius="lg" overflow="hidden" minH="400px" p={2}>
               {loading || (filter === 'holdings' && myHoldingsLoading) ? (
                 <Box p={8} textAlign="center">
-                  <Spinner size="xl" />
-                  <Text mt={4} color="white">Loading markets...</Text>
+                  <Spinner size="xl" color="brand.500" />
+                  <Text mt={4} color="white" fontSize="lg">Loading markets...</Text>
                 </Box>
               ) : (
-                <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={3}>
-                  {paginatedMarkets.map((market) => {
+                <SimpleGrid columns={{ base: 1, md: 2, lg: 3, xl: 5 }} spacing={2}>
+                  {sorted.map((market) => {
                     return (
                       <ListAddressMarketCard
                         key={market._key || market.pair_name}
@@ -390,16 +385,16 @@ const ListAddressOwner: React.FC = () => {
                 (filter !== 'holdings' && filteredMarkets.length === 0)
               ) && (
                 <Box p={8} textAlign="center">
-                  <Text color="gray.500">No markets found. Try deploying a new market or check your filters.</Text>
+                  <Text color="gray.500" fontSize="lg">No markets found. Try deploying a new market or check your filters.</Text>
                 </Box>
               )}
             </Box>
           </Box>
-          {/* Pagination */}
-          <Box mt={8} mb={4} textAlign="center">
-            <Button onClick={() => handlePageChange(page - 1)} isDisabled={page <= 1} mr={2}>Previous</Button>
-            <Text as="span" mx={2}>Page {page} / {totalPages}</Text>
-            <Button onClick={() => handlePageChange(page + 1)} isDisabled={page >= totalPages}>Next</Button>
+          {/* Market Count Info */}
+          <Box mt={8} mb={6} textAlign="center">
+            <Text color="gray.400" fontSize="md" fontWeight="medium">
+              Showing {sorted.length} markets
+            </Text>
           </Box>
         </Flex>
       </Flex>

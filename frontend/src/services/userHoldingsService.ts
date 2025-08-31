@@ -1,4 +1,4 @@
-import { getUserBid } from './aptosMarketService';
+import { getUserPosition } from './aptosMarketService';
 
 /**
  * Check if a user has any holdings (long or short) in a given market.
@@ -7,8 +7,11 @@ import { getUserBid } from './aptosMarketService';
  */
 export async function hasUserHoldings(userAddress: string, marketAddress: string): Promise<boolean> {
   try {
-    const [long, short] = await getUserBid(userAddress, marketAddress);
-    return Number(long) > 0 || Number(short) > 0;
+    const userPosition = await getUserPosition(userAddress, marketAddress);
+    if (userPosition) {
+      return Number(userPosition.amount_net) > 0;
+    }
+    return false;
   } catch {
     return false;
   }

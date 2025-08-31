@@ -1,11 +1,11 @@
 import { Box, Flex, Heading, Icon, Text, UnorderedList, ListItem } from '@chakra-ui/react';
 import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons';
-import type { MarketInfo as MarketInfoType } from '../../services/aptosMarketService';
+import type { Market } from '../../types';
 
 interface MarketRulesProps {
   showRules: boolean;
   setShowRules: (show: boolean) => void;
-  market: MarketInfoType;
+  market: Market;
   strike: string;
   fee: string;
 }
@@ -19,7 +19,7 @@ const MarketRules: React.FC<MarketRulesProps> = ({ showRules, setShowRules, mark
     {showRules && (
       <Box mt={4}>
         <Text color="gray.400" mb={3}>
-          This is a binary option market where users can place bids on whether the price of {market.pair_name || ''} will be above (LONG) or below (SHORT) the strike price: {strike} USD at maturity.
+          This is a poly-option market where users can place bets on multiple outcomes for {market.price_feed_id || ''} with strike price: {strike} USD at maturity.
         </Text>
         <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Market Phases:</Text>
         <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>

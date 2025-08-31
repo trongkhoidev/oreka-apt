@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Box, VStack, HStack, Text, Circle, Button, Spacer } from '@chakra-ui/react';
 import { CheckIcon } from '@chakra-ui/icons';
-import type { MarketInfo as MarketInfoType } from '../../services/aptosMarketService';
+import type { Market } from '../../types';
 
 enum Phase { Pending = 0, Bidding = 1, Maturity = 2 }
 
 interface MarketTimelineProps {
   phase: Phase;
   phaseNames: string[];
-  market: MarketInfoType;
+  market: Market;
   maturity: string;
   canResolve: boolean;
   handleResolve: () => void;
@@ -37,7 +37,7 @@ const MarketTimeline: React.FC<MarketTimelineProps> = ({ phase, phaseNames, mark
 
   useEffect(() => {
     async function fetchResolvedTime() {
-      if (!market?.market_address || !market?.is_resolved || !market?.final_price) return;
+      if (!market?.creator || !market?.is_resolved || !market?.final_price) return;
       try {
         // Fetch ResolveEvent list
         const events = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${MODULE_ADDRESS}/events/${MODULE_ADDRESS}::binary_option_market::MarketRegistry/${RESOLVE_EVENT_HANDLE}`).then(res => res.json());
@@ -63,12 +63,12 @@ const MarketTimeline: React.FC<MarketTimelineProps> = ({ phase, phaseNames, mark
       }
     }
     fetchResolvedTime();
-  }, [market?.market_address, market?.is_resolved, market?.final_price]);
+  }, [market?.creator, market?.is_resolved, market?.final_price]);
 
   let outcomeText = '';
-  if (market?.is_resolved && market?.final_price && market?.strike_price) {
+  if (market?.is_resolved && market?.final_price && market?.outcomes?.[0]?.threshold1) {
     const finalPrice = Number(market.final_price);
-    const strikePrice = Number(market.strike_price);
+    const strikePrice = Number(market.outcomes[0].threshold1);
     if (!isNaN(finalPrice) && !isNaN(strikePrice)) {
       if (finalPrice >= strikePrice) outcomeText = 'Outcome: LONG';
       else outcomeText = 'Outcome: SHORT';

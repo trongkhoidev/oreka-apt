@@ -7,7 +7,7 @@ import {
   Text,
 } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
-import { FaHome, FaPlus, FaList, FaNewspaper } from 'react-icons/fa';
+import { FaHome, FaPlus, FaList, FaNewspaper, FaUser } from 'react-icons/fa';
 import Link from 'next/link';
 
 const NavigationSidebar: React.FC = () => {
@@ -98,6 +98,19 @@ const NavigationSidebar: React.FC = () => {
               _hover={{ bg: router.pathname === '/news' ? '#23262f' : 'rgba(79,140,255,0.04)', color: 'white' }}
               _active={{ bg: '#23262f', color: 'white' }}
             >News</Button>
+          </Link>
+          <Link href="/profile" passHref legacyBehavior>
+            <Button as="a" leftIcon={<Icon as={FaUser} fontSize="2xl" />} variant="ghost" w="full" justifyContent="flex-start"
+              bg={router.pathname === '/profile' ? '#23262f' : 'transparent'}
+              color={router.pathname === '/profile' ? 'white' : '#A0A4AE'}
+              borderRadius="full"
+              fontWeight={router.pathname === '/profile' ? 'bold' : 'normal'}
+              fontSize="xl"
+              py={6}
+              pl="8"
+              _hover={{ bg: router.pathname === '/profile' ? '#23262f' : 'rgba(79,140,255,0.04)', color: 'white' }}
+              _active={{ bg: '#23262f', color: 'white' }}
+            >Profile</Button>
           </Link>
         </VStack>
       </VStack>

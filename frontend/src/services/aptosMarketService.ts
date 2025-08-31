@@ -1,73 +1,33 @@
-// import only what is used
-import { BINARY_OPTION_MARKET_MODULE_ADDRESS } from '@/config/contracts';
-import { getAptosClient } from '../config/network';
+// Aptos Market Service for Poly-Option Crypto Markets
+import {
+  CRYPTO_MARKET_MODULE_ADDRESS,
+  CRYPTO_MARKET_MODULE_NAME,
+  TREASURY_POOL_MODULE_ADDRESS,
+  TREASURY_POOL_MODULE_NAME,
+  ORK_TOKEN_MODULE_ADDRESS,
+  ORK_TOKEN_MODULE_NAME,
+  CIRCLE_USDC_INTEGRATION_MODULE_ADDRESS,
+  CIRCLE_USDC_INTEGRATION_MODULE_NAME,
+  HYPERION_CLMM_INTEGRATION_MODULE_ADDRESS,
+  HYPERION_CLMM_INTEGRATION_MODULE_NAME,
+} from '@/config/contracts';
+import { getAptosClient } from '@/config/network';
 import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
-import { getPairAndSymbolFromPriceFeedId } from '../config/tradingPairs';
-
-// Debug: Monkey-patch fetch to log stacktrace when calling /module/binary_option_market
-if (typeof window !== 'undefined' && window.fetch) {
-  const originalFetch = window.fetch;
-  window.fetch = function(...args) {
-    if (typeof args[0] === 'string' && args[0].includes('/module/binary_option_market')) {
-      console.trace('Fetch /module/binary_option_market called from:');
-    }
-    return originalFetch.apply(this, args);
-  };
-}
+import type { 
+  GasEstimate,
+  CircleUSDCInfo,
+  HyperionCLMMInfo,
+  NoditIndexInfo,
+  Market,
+  MarketFormData,
+  UserBet,
+  TreasuryPool,
+  OrkTokenInfo
+} from '@/types';
+import { GasSpeed } from '@/types';
 
 // Export the type from wallet-adapter-core for use in other files
 export { InputTransactionData };
-
-// Aligned with the MarketInfo struct in factory.move
-export interface MarketInfo {
-    market_address: string;
-    owner: string;
-    price_feed_id: string;
-    pair_name: string;
-    strike_price: string;
-    fee_percentage: string;
-    bidding_start_time: string;
-    bidding_end_time: string;
-    maturity_time: string;
-    total_amount: string;
-    long_amount: string;
-    short_amount: string;
-    total_bids: string;
-    long_bids: string;
-    short_bids: string;
-    result: string;
-    is_resolved: boolean;
-    final_price: string;
-    fee_withdrawn: boolean;
-    created_at: string;
-    creator: string;
-    symbol?: string; // Added for pair_name mapping
-}
-
-export interface DeployMarketParams {
-  pairName: string;
-  strikePrice: number | string;
-  feePercentage: number | string;
-  biddingStartTime: number | string;
-  biddingEndTime: number | string;
-  maturityTime: number | string;
-}
-
-// Gas estimation interface
-export interface GasEstimate {
-  gasUsed: number;
-  gasUnitPrice: number;
-  totalFee: number; // in APT
-  totalFeeUSD: number; // in USD
-  estimatedTime: string; // estimated confirmation time
-}
-
-// Gas speed options
-export enum GasSpeed {
-  NORMAL = 'normal',
-  FAST = 'fast', 
-  INSTANT = 'instant'
-}
 
 // Gas speed multipliers
 const GAS_SPEED_MULTIPLIERS = {
@@ -98,468 +58,377 @@ function safeU64String(val: string | number, name: string): string {
 }
 
 /**
- * Simulate transaction to estimate gas fees
+ * Estimate gas for deploying a new poly-option market
+ * @param params Market creation parameters
+ * @param gasSpeed Gas speed setting
+ * @returns Gas estimate
  */
 export async function estimateDeployMarketGas(
-  params: DeployMarketParams,
+  params: MarketFormData,
   gasSpeed: GasSpeed = GasSpeed.NORMAL
 ): Promise<GasEstimate> {
   try {
-    const aptos = getAptosClient();
-    const hex = params.pairName.startsWith('0x') ? params.pairName.slice(2) : params.pairName;
-    if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
-    const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
-    if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
-    // Chuẩn hóa và validate arguments
+    // Convert parameters to the format expected by the smart contract
     const args = [
-      priceFeedIdBytes,
-      safeU64String(params.strikePrice, 'strikePrice'),
-      safeU64String(params.feePercentage, 'feePercentage'),
-      safeU64String(params.biddingStartTime, 'biddingStartTime'),
-      safeU64String(params.biddingEndTime, 'biddingEndTime'),
-      safeU64String(params.maturityTime, 'maturityTime')
+      params.tradingPair,
+      params.outcomes.map(outcome => [
+        outcome.index,
+        outcome.comparison_type,
+        outcome.threshold1,
+        outcome.threshold2,
+        outcome.description,
+        outcome.is_active
+      ]),
+      safeU64String(params.ownerFeeBps, 'ownerFeeBps'),
+      safeU64String(params.protocolRakeBps, 'protocolRakeBps'),
+      safeU64String(params.orkBudget, 'orkBudget'),
+      safeU64String(new Date(`${params.biddingStartDate} ${params.biddingStartTime}`).getTime() / 1000, 'biddingStartTime'),
+      safeU64String(new Date(`${params.biddingEndDate} ${params.biddingEndTime}`).getTime() / 1000, 'biddingEndTime'),
+      params.paymentAsset
     ];
+
     console.log('[estimateDeployMarketGas] arguments:', args);
-    const payload = {
-      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
-      type_arguments: [],
-      arguments: args
-    };
 
     // Use a reasonable default gas unit price for Aptos mainnet
     const baseGasUnitPrice = 100; // Default gas unit price in octas for mainnet
     const adjustedGasUnitPrice = Math.floor(baseGasUnitPrice * GAS_SPEED_MULTIPLIERS[gasSpeed]);
-
-    // Build simulation payload
-    const simulationPayload = {
-      sender: "0x1",
-      payload: payload,
-      gas_unit_price: String(adjustedGasUnitPrice),
-      max_gas_amount: "1000000"
-    };
-    console.log('[estimateDeployMarketGas] simulationPayload:', simulationPayload);
-
-    // Simulate transaction using REST API directly
-    const simulationResponse = await fetch(`${aptos.config.fullnode}/transactions/simulate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(simulationPayload)
-    });
-
-    if (!simulationResponse.ok) {
-      const errorText = await simulationResponse.text();
-      console.error('Transaction simulation failed:', errorText);
-      throw new Error(`Transaction simulation failed: ${errorText}`);
-    }
-
-    const simulationData = await simulationResponse.json();
-    
-    if (!simulationData[0] || simulationData[0].success === false) {
-      console.error('Transaction simulation failed with data:', simulationData[0]?.vm_status);
-      throw new Error(`Transaction simulation failed: ${simulationData[0]?.vm_status}`);
-    }
-
-    const gasUsed = Number(simulationData[0].gas_used || 50000); // Default fallback
-    const totalFeeOctas = gasUsed * adjustedGasUnitPrice;
-    const totalFeeAPT = totalFeeOctas / 1e8; // Convert from octas to APT
-
-    // Estimate USD value (using a rough APT price estimate for mainnet)
-    // In a real app, you'd fetch current APT price from an API
-    const aptPriceUSD = 8.5; // Rough estimate for mainnet, should be fetched from price feed
-    const totalFeeUSD = totalFeeAPT * aptPriceUSD;
-
-    // Estimate confirmation time based on gas speed
-    const estimatedTime = getEstimatedConfirmationTime(gasSpeed);
+    const gasUsed = 100000; // Base estimate, will be refined
+    const totalFee = (gasUsed * adjustedGasUnitPrice) / 1e8; // Convert to APT
+    const totalFeeUSD = totalFee * 10; // Rough USD conversion
 
     return {
       gasUsed,
       gasUnitPrice: adjustedGasUnitPrice,
-      totalFee: totalFeeAPT,
+      totalFee,
       totalFeeUSD,
-      estimatedTime
+      estimatedTime: '2-5 minutes'
     };
   } catch (error) {
-    console.error('Error estimating gas:', error);
-    
-    // Return fallback estimates for mainnet
-    const fallbackGasUsed = 50000;
-    const fallbackGasUnitPrice = 100;
-    const fallbackFeeAPT = (fallbackGasUsed * fallbackGasUnitPrice) / 1e8;
-    
-    return {
-      gasUsed: fallbackGasUsed,
-      gasUnitPrice: fallbackGasUnitPrice,
-      totalFee: fallbackFeeAPT,
-      totalFeeUSD: fallbackFeeAPT * 8.5,
-      estimatedTime: '~30 seconds'
-    };
+    console.error('[estimateDeployMarketGas] Error:', error);
+    throw error;
   }
 }
 
 /**
- * Get estimated confirmation time based on gas speed
- */
-function getEstimatedConfirmationTime(gasSpeed: GasSpeed): string {
-  switch (gasSpeed) {
-    case GasSpeed.NORMAL:
-      return '~30 seconds';
-    case GasSpeed.FAST:
-      return '~15 seconds';
-    case GasSpeed.INSTANT:
-      return '~5 seconds';
-    default:
-      return '~30 seconds';
-  }
-}
-
-/**
- * Deploy market with custom gas settings
+ * Deploy a new poly-option market with gas settings
+ * @param signAndSubmitTransaction Transaction signing function
+ * @param params Market creation parameters
+ * @param gasSpeed Gas speed setting
+ * @returns Transaction hash
  */
 export async function deployMarketWithGasSettings(
   signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
-  params: DeployMarketParams,
-  gasSpeed: GasSpeed = GasSpeed.NORMAL
+  params: MarketFormData
 ): Promise<string> {
   try {
-    const {
-      pairName,
-      strikePrice,
-      feePercentage,
-      biddingStartTime,
-      biddingEndTime,
-      maturityTime,
-    } = params;
-    
-    const hex = pairName.startsWith('0x') ? pairName.slice(2) : pairName;
-    if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
-    const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
-    if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
-    // Get gas estimate for the selected speed
-    const gasEstimate = await estimateDeployMarketGas(params, gasSpeed);
     const transaction: InputTransactionData = {
       data: {
-        function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
+        function: `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::create_market`,
         typeArguments: [],
         functionArguments: [
-          priceFeedIdBytes,
-          typeof strikePrice === 'string' ? strikePrice : String(strikePrice),
-          typeof feePercentage === 'string' ? feePercentage : String(feePercentage),
-          typeof biddingStartTime === 'string' ? biddingStartTime : String(biddingStartTime),
-          typeof biddingEndTime === 'string' ? biddingEndTime : String(biddingEndTime),
-          typeof maturityTime === 'string' ? maturityTime : String(maturityTime)
+          params.tradingPair,
+          params.outcomes.map(outcome => [
+            outcome.index,
+            outcome.comparison_type,
+            outcome.threshold1,
+            outcome.threshold2,
+            outcome.description,
+            outcome.is_active
+          ]),
+          params.ownerFeeBps,
+          params.protocolRakeBps,
+          params.orkBudget,
+          new Date(`${params.biddingStartDate} ${params.biddingStartTime}`).getTime() / 1000,
+          new Date(`${params.biddingEndDate} ${params.biddingEndTime}`).getTime() / 1000,
+          params.paymentAsset
         ],
       }
     };
-    
-    // Note: The actual gas settings will be handled by the wallet
-    // The wallet may use our estimates or its own logic
-    console.log('Deploying with gas settings:', {
-      gasSpeed,
-      estimatedGas: gasEstimate.gasUsed,
-      estimatedFee: gasEstimate.totalFee
-    });
-    
+
     const response = await signAndSubmitTransaction(transaction);
-    if (typeof response === 'string') {
-      return response;
-    }
     if (response && typeof response === 'object' && 'hash' in response) {
       return (response as { hash: string }).hash;
     }
     throw new Error('Transaction did not return a hash');
   } catch (error) {
-    console.error('Error deploying market with gas settings:', error);
-    throw new Error('Failed to deploy market');
+    console.error('[deployMarketWithGasSettings] Error:', error);
+    throw error;
   }
 }
 
 /**
- * Deploy a new market by calling factory::deploy_market on Aptos chain.
+ * Deploy a new poly-option market
+ * @param signAndSubmitTransaction Transaction signing function
+ * @param params Market creation parameters
+ * @returns Transaction hash
  */
 export async function deployMarket(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
-    params: DeployMarketParams
+  signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
+  params: MarketFormData
 ): Promise<string> {
   try {
-    const {
-      pairName, 
-      strikePrice,
-      feePercentage,
-      biddingStartTime,
-      biddingEndTime,
-      maturityTime,
-    } = params;
-
-    const hex = pairName.startsWith('0x') ? pairName.slice(2) : pairName;
-    if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
-    const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
-    if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
     const transaction: InputTransactionData = {
       data: {
-        function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
+        function: `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::create_market`,
         typeArguments: [],
         functionArguments: [
-          priceFeedIdBytes,
-          typeof strikePrice === 'string' ? strikePrice : String(strikePrice),
-          typeof feePercentage === 'string' ? feePercentage : String(feePercentage),
-          typeof biddingStartTime === 'string' ? biddingStartTime : String(biddingStartTime),
-          typeof biddingEndTime === 'string' ? biddingEndTime : String(biddingEndTime),
-          typeof maturityTime === 'string' ? maturityTime : String(maturityTime)
+          params.tradingPair,
+          params.outcomes.map(outcome => [
+            outcome.index,
+            outcome.comparison_type,
+            outcome.threshold1,
+            outcome.threshold2,
+            outcome.description,
+            outcome.is_active
+          ]),
+          params.ownerFeeBps,
+          params.protocolRakeBps,
+          params.orkBudget,
+          new Date(`${params.biddingStartDate} ${params.biddingStartTime}`).getTime() / 1000,
+          new Date(`${params.biddingEndDate} ${params.biddingEndTime}`).getTime() / 1000,
+          params.paymentAsset
         ],
       }
     };
+
     const response = await signAndSubmitTransaction(transaction);
-    // If response is unknown, try to access hash safely
     if (response && typeof response === 'object' && 'hash' in response) {
       return (response as { hash: string }).hash;
     }
     throw new Error('Transaction did not return a hash');
   } catch (error) {
-    console.error('Error deploying market:', error);
-    if (error instanceof Error && error.message) throw new Error('Failed to deploy market: ' + error.message);
-    throw new Error('Failed to deploy market');
+    console.error('[deployMarket] Error:', error);
+    throw error;
   }
 }
 
-export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
-  if (!owner || typeof owner !== 'string' || !owner.startsWith('0x')) return [];
+/**
+ * Get markets by owner address
+ * @param owner Owner address
+ * @returns Array of market addresses
+ */
+export async function getMarketsByOwner(owner: string): Promise<string[]> {
   try {
     const aptos = getAptosClient();
     const payload = {
-      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::get_markets_by_owner` as `${string}::${string}::${string}`,
+      function: `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::get_markets_by_owner` as `${string}::${string}::${string}`,
       type_arguments: [],
       arguments: [owner],
     };
-    console.log('[getMarketsByOwner] payload:', payload);
-    const result = await aptos.view({ payload });
-    console.log('[getMarketsByOwner] result:', result);
-    if (result && result[0]) {
-      return (result[0] as MarketInfo[]).map(market => {
-        const { pair, symbol } = getPairAndSymbolFromPriceFeedId(market.price_feed_id || '');
-        return {
-          ...market,
-          pair_name: pair,
-          symbol,
-        };
-      });
-    }
-    return [];
+
+    const response = await aptos.view({ payload });
+    return response as string[];
   } catch (error) {
     console.error('[getMarketsByOwner] Error:', error);
     return [];
   }
 }
 
-
-const marketDetailsCache: Record<string, { data: MarketInfo | null, ts: number, rateLimitedUntil?: number }> = {};
-
-export async function getMarketDetails(marketObjectAddress: string, forceRefresh: boolean = false): Promise<MarketInfo | null> {
-  const now = Date.now();
-  if (!forceRefresh && marketDetailsCache[marketObjectAddress] && now - marketDetailsCache[marketObjectAddress].ts < 3 * 60 * 1000) {
-    return marketDetailsCache[marketObjectAddress].data;
-  }
- 
-  if (marketDetailsCache[marketObjectAddress]?.rateLimitedUntil && now < marketDetailsCache[marketObjectAddress].rateLimitedUntil) {
-    console.warn(`[getMarketDetails] Skipping fetch for ${marketObjectAddress} due to rate limit.`);
-    return marketDetailsCache[marketObjectAddress].data || null;
-  }
+/**
+ * Get market details by market object address
+ * @param marketObjectAddress Market object address
+ * @returns Market information or null
+ */
+export async function getMarketDetails(marketObjectAddress: string): Promise<Market | null> {
   try {
-    const resourceType = `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::Market` as `${string}::${string}::${string}`;
+    const resourceType = `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::Market` as `${string}::${string}::${string}`;
     const baseUrl = 'https://fullnode.mainnet.aptoslabs.com/v1/accounts';
     const url = `${baseUrl}/${marketObjectAddress}/resource/${resourceType}`;
-    let retryCount = 0;
-    while (retryCount < 3) {
-      try {
-        const response = await fetch(url);
-        if (response.status === 429) {
-          console.warn('[getMarketDetails] Rate limited (429). Retrying after 2 minutes...');
-          marketDetailsCache[marketObjectAddress] = {
-            data: marketDetailsCache[marketObjectAddress]?.data || null,
-            ts: now,
-            rateLimitedUntil: now + 2 * 60 * 1000
-          };
-          await new Promise(res => setTimeout(res, 2 * 60 * 1000));
-          retryCount++;
-          continue;
-        }
-        if (response.status === 404) {
-          console.warn('[getMarketDetails] Resource not found (404):', url);
-          return null;
-        }
-        if (!response.ok) {
-          throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
-        }
-        const text = await response.text();
-        if (!text) {
-          console.warn('[getMarketDetails] Empty response body:', url);
-          return null;
-        }
-        let resource;
-        try {
-          resource = JSON.parse(text);
-        } catch (e: unknown) {
-          console.error('[getMarketDetails] Failed to parse JSON:', e, text);
-          return null;
-        }
-        if (!resource || !resource.data) {
-          throw new Error(`Market resource not found for address: ${marketObjectAddress}`);
-        }
-        const market = resource.data;
-        const { pair, symbol } = getPairAndSymbolFromPriceFeedId(market.price_feed_id || '');
-        const result: MarketInfo = {
-          market_address: marketObjectAddress,
-          owner: market.creator || '',
-          creator: market.creator || '',
-          pair_name: pair,
-          symbol,
-          strike_price: market.strike_price ? String(market.strike_price) : '0',
-          fee_percentage: market.fee_percentage ? String(market.fee_percentage) : '0',
-          bidding_start_time: market.bidding_start_time ? String(market.bidding_start_time) : '0',
-          bidding_end_time: market.bidding_end_time ? String(market.bidding_end_time) : '0',
-          maturity_time: market.maturity_time ? String(market.maturity_time) : '0',
-          total_amount: market.total_amount ? String(market.total_amount) : '0',
-          long_amount: market.long_amount ? String(market.long_amount) : '0',
-          short_amount: market.short_amount ? String(market.short_amount) : '0',
-          total_bids: market.total_bids ? String(market.total_bids) : '0',
-          long_bids: market.long_bids ? String(market.long_bids) : '0',
-          short_bids: market.short_bids ? String(market.short_bids) : '0',
-          result: market.result !== undefined ? String(market.result) : '2',
-          is_resolved: !!market.is_resolved,
-          final_price: market.final_price ? String(market.final_price) : '0',
-          fee_withdrawn: !!market.fee_withdrawn,
-          created_at: market.created_at ? String(market.created_at) : '0',
-          price_feed_id: market.price_feed_id || '',
-        };
-        marketDetailsCache[marketObjectAddress] = { data: result, ts: Date.now() };
-        return result;
-      } catch (fetchError) {
-        console.error('[getMarketDetails] Fetch error:', fetchError);
-        retryCount++;
-        if (retryCount >= 3) {
-          throw fetchError;
-        }
-        await new Promise(res => setTimeout(res, 1000 * retryCount)); // Exponential backoff
-      }
+    
+    const response = await fetch(url);
+    if (response.status === 404) {
+      console.warn('[getMarketDetails] Resource not found (404):', url);
+      return null;
     }
-    return null;
+    if (!response.ok) {
+      throw new Error(`Failed to fetch resource: ${response.status} ${response.statusText}`);
+    }
+
+    const resource = await response.json();
+    if (!resource || !resource.data) {
+      throw new Error(`Market resource not found for address: ${marketObjectAddress}`);
+    }
+
+    const market = resource.data;
+    
+    const result: Market = {
+      creator: market.creator || '',
+      price_feed_id: market.price_feed_id || '',
+      outcomes: market.outcomes || [],
+      num_outcomes: market.num_outcomes || 0,
+      fee_percentage_bps: market.fee_percentage_bps || 0,
+      rake_percentage_bps: market.rake_percentage_bps || 0,
+      ork_budget: market.ork_budget || 0,
+      total_bids: market.total_bids || 0,
+      total_amount: market.total_amount || '0',
+      total_net_amount: market.total_net_amount || '0',
+      fee_accumulator: market.fee_accumulator || '0',
+      rake_accumulator: market.rake_accumulator || '0',
+      outcome_amounts: market.outcome_amounts || [],
+      outcome_net_amounts: market.outcome_net_amounts || [],
+      outcome_weights: market.outcome_weights || [],
+      total_weight: market.total_weight || '0',
+      bidding_start_time: market.bidding_start_time || 0,
+      bidding_end_time: market.bidding_end_time || 0,
+      status: market.status || 1,
+      winning_outcome: market.winning_outcome || 255,
+      is_void: market.is_void || false,
+      is_resolved: market.is_resolved || false,
+      final_price: market.final_price || '0',
+      resolved_at: market.resolved_at || 0,
+      payment_asset: market.payment_asset || 2, // Default to APT
+      payout_pool: market.payout_pool || '0',
+      losers_net: market.losers_net || '0',
+    };
+
+    return result;
   } catch (error) {
     console.error('[getMarketDetails] Error:', error, marketObjectAddress);
     return null;
   }
 }
 
-export async function bid(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
-    marketAddress: string, 
-    prediction: boolean, 
-    amount: number,
-    timestampBid: number 
+/**
+ * Place a bet on a specific outcome
+ * @param signAndSubmitTransaction Transaction signing function
+ * @param marketAddress Market address
+ * @param outcomeIndex Outcome index to bet on
+ * @param amount Bet amount
+ * @returns Transaction hash
+ */
+export async function placeBet(
+  signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
+  marketAddress: string, 
+  outcomeIndex: number, 
+  amount: number
 ): Promise<string> {
-    // Convert amount to octas (1 APT = 1e8 octas)
-    const amountInOctas = Math.floor(amount * 1e8);
-    // Use standard entry function payload; coin transfer is handled by Move contract
+  try {
     const transaction: InputTransactionData = {
-        data: {
-            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::bid`,
-            typeArguments: [],
-            functionArguments: [marketAddress, prediction, amountInOctas.toString(), timestampBid.toString()],
-        }
+      data: {
+        function: `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::place_bet`,
+        typeArguments: [],
+        functionArguments: [marketAddress, outcomeIndex, amount.toString()],
+      }
     };
-    const response = await signAndSubmitTransaction(transaction);
-    if (response && typeof response === 'object' && 'hash' in response) {
-      return (response as { hash: string }).hash;
-    }
-    throw new Error('Transaction did not return a hash');
-}
 
-export async function claim(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
-    marketAddress: string
-): Promise<string> {
-    const transaction: InputTransactionData = {
-        data: {
-            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::claim`,
-            typeArguments: [],
-            functionArguments: [marketAddress], 
-        }
-    };
     const response = await signAndSubmitTransaction(transaction);
-    // If response is unknown, try to access hash safely
     if (response && typeof response === 'object' && 'hash' in response) {
       return (response as { hash: string }).hash;
     }
     throw new Error('Transaction did not return a hash');
+  } catch (error) {
+    console.error('[placeBet] Error:', error);
+    throw error;
+  }
 }
 
 /**
- * Resolve market using off-chain price data (Hermes API approach)
- * @param signAndSubmitTransaction
- * @param marketAddress
- * @param finalPrice - final price from Hermes API
- * @param result - 0 for long win, 1 for short win
+ * Claim winnings from a resolved market
+ * @param signAndSubmitTransaction Transaction signing function
+ * @param marketAddress Market address
+ * @returns Transaction hash
+ */
+export async function claimWinnings(
+  signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
+  marketAddress: string
+): Promise<string> {
+  try {
+    const transaction: InputTransactionData = {
+      data: {
+        function: `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::claim_winnings`,
+        typeArguments: [],
+        functionArguments: [marketAddress], 
+      }
+    };
+
+    const response = await signAndSubmitTransaction(transaction);
+    if (response && typeof response === 'object' && 'hash' in response) {
+      return (response as { hash: string }).hash;
+    }
+    throw new Error('Transaction did not return a hash');
+  } catch (error) {
+    console.error('[claimWinnings] Error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Resolve market using Pyth price data
+ * @param signAndSubmitTransaction Transaction signing function
+ * @param marketAddress Market address
+ * @param pythPriceUpdate Pyth price update data
+ * @returns Transaction hash
  */
 export async function resolveMarket(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
-    marketAddress: string,
-    pythPriceUpdate: number[][]
+  signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
+  marketAddress: string,
+  pythPriceUpdate: number[][]
 ): Promise<string> {
+  try {
     const transaction: InputTransactionData = {
-        data: {
-            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::resolve_market`,
-            typeArguments: [],
-            functionArguments: [marketAddress, pythPriceUpdate],
-        }
+      data: {
+        function: `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::resolve_market`,
+        typeArguments: [],
+        functionArguments: [marketAddress, pythPriceUpdate],
+      }
     };
+
     const response = await signAndSubmitTransaction(transaction);
     if (response && typeof response === 'object' && 'hash' in response) {
       return (response as { hash: string }).hash;
     }
     throw new Error('Transaction did not return a hash');
+  } catch (error) {
+    console.error('[resolveMarket] Error:', error);
+    throw error;
+  }
 }
 
-export async function withdrawFee(
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
-    marketAddress: string
+/**
+ * Withdraw fees from a market
+ * @param signAndSubmitTransaction Transaction signing function
+ * @param marketAddress Market address
+ * @returns Transaction hash
+ */
+export async function withdrawFees(
+  signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
+  marketAddress: string
 ): Promise<string> {
+  try {
     const transaction: InputTransactionData = {
-        data: {
-            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::withdraw_fee`,
-            typeArguments: [],
-            functionArguments: [marketAddress], 
-        }
+      data: {
+        function: `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::withdraw_fees`,
+        typeArguments: [],
+        functionArguments: [marketAddress], 
+      }
     };
+
     const response = await signAndSubmitTransaction(transaction);
-    // If response is unknown, try to access hash safely
     if (response && typeof response === 'object' && 'hash' in response) {
       return (response as { hash: string }).hash;
     }
     throw new Error('Transaction did not return a hash');
+  } catch (error) {
+    console.error('[withdrawFees] Error:', error);
+    throw error;
+  }
 }
 
-export async function getAllMarkets(): Promise<MarketInfo[]> {
+/**
+ * Get all markets
+ * @returns Array of market addresses
+ */
+export async function getAllMarkets(): Promise<string[]> {
   try {
     const aptos = getAptosClient();
     const payload = {
-      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::get_all_markets` as `${string}::${string}::${string}`,
+      function: `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::get_all_markets` as `${string}::${string}::${string}`,
       type_arguments: [],
       arguments: [],
     };
-    console.log('[getAllMarkets] payload:', payload);
-    const result = await aptos.view({ payload });
-    console.log('[getAllMarkets] result:', result);
-    if (result && result[0]) {
-      return (result[0] as MarketInfo[]).map(market => {
-        const { pair, symbol } = getPairAndSymbolFromPriceFeedId(market.price_feed_id || '');
-        return {
-          ...market,
-          pair_name: pair,
-          symbol,
-        };
-      });
-    }
-    return [];
+
+    const response = await aptos.view({ payload });
+    return response as string[];
   } catch (error) {
     console.error('[getAllMarkets] Error:', error);
     return [];
@@ -567,67 +436,147 @@ export async function getAllMarkets(): Promise<MarketInfo[]> {
 }
 
 /**
- * Get the user's bid for a specific market.
- * @param userAddress - The user's wallet address
- * @param marketAddress - The market object address (NOT the module address!)
- * @returns [long_amount, short_amount, has_bid]
+ * Get user position in a market
+ * @param userAddress User address
+ * @param marketAddress Market address
+ * @returns User bet information or null
  */
-export async function getUserBid(userAddress: string, marketAddress: string): Promise<[string, string, boolean]> {
-  console.log('[getUserBid] Called with:', { userAddress, marketAddress });
-  const aptos = getAptosClient();
-  const result = await aptos.view({
-    payload: {
-      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::get_user_position`,
-      typeArguments: [],
-      functionArguments: [userAddress, marketAddress],
-    }
-  });
-  console.log('[getUserBid] API raw result:', result);
-
-
-  // Handle different response formats
-  if (Array.isArray(result) && result.length === 2 && (typeof result[0] === 'string' || typeof result[0] === 'number')) {
-    const long = String(result[0]);
-    const short = String(result[1]);
-    const hasBid = Number(long) > 0 || Number(short) > 0;
-    console.log('[getUserBid] Parsed (array direct):', { long, short, hasBid });
-    return [long, short, hasBid];
-  }
-
-  // Handle wrapped response format
-  if (Array.isArray(result) && result.length > 0 && result[0] && typeof result[0] === 'object') {
-    const firstResult = result[0] as { result?: unknown[] };
-    if (firstResult.result && Array.isArray(firstResult.result) && firstResult.result.length === 2) {
-      const long = String(firstResult.result[0]);
-      const short = String(firstResult.result[1]);
-      const hasBid = Number(long) > 0 || Number(short) > 0;
-      console.log('[getUserBid] Parsed (array[0].result):', { long, short, hasBid });
-      return [long, short, hasBid];
-    }
-  }
-
-  // Handle object with result property
-  if (result && typeof result === 'object' && 'result' in result) {
-    const resultObj = result as { result?: unknown[] };
-    if (resultObj.result && Array.isArray(resultObj.result) && resultObj.result.length === 2) {
-      const long = String(resultObj.result[0]);
-      const short = String(resultObj.result[1]);
-      const hasBid = Number(long) > 0 || Number(short) > 0;
-      console.log('[getUserBid] Parsed (object.result):', { long, short, hasBid });
-      return [long, short, hasBid];
-    }
-  }
-
-  // fallback
-  console.warn('[getUserBid] Fallback: No result or unexpected format', { result });
-  return ['0', '0', false];
-} 
-
-export async function getMarketCount(): Promise<number> {
+export async function getUserPosition(userAddress: string, marketAddress: string): Promise<UserBet | null> {
   try {
-    const markets = await getAllMarkets();
-    return markets.length;
-  } catch {
-    return 0;
+    const aptos = getAptosClient();
+    const result = await aptos.view({
+      payload: {
+        function: `${CRYPTO_MARKET_MODULE_ADDRESS}::${CRYPTO_MARKET_MODULE_NAME}::get_user_position`,
+        typeArguments: [],
+        functionArguments: [userAddress, marketAddress],
+      }
+    });
+
+    if (result) {
+      return result as unknown as UserBet;
+    }
+    return null;
+  } catch (error) {
+    console.error('[getUserPosition] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Get treasury pool information
+ * @returns Treasury pool data or null
+ */
+export async function getTreasuryPool(): Promise<TreasuryPool | null> {
+  try {
+    const aptos = getAptosClient();
+    const result = await aptos.view({
+      payload: {
+        function: `${TREASURY_POOL_MODULE_ADDRESS}::${TREASURY_POOL_MODULE_NAME}::get_treasury_pool`,
+        typeArguments: [],
+        functionArguments: [],
+      }
+    });
+
+    if (result) {
+      return result as unknown as TreasuryPool;
+    }
+    return null;
+  } catch (error) {
+    console.error('[getTreasuryPool] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Get ORK token information
+ * @returns ORK token data or null
+ */
+export async function getOrkTokenInfo(): Promise<OrkTokenInfo | null> {
+  try {
+    const aptos = getAptosClient();
+    const result = await aptos.view({
+      payload: {
+        function: `${ORK_TOKEN_MODULE_ADDRESS}::${ORK_TOKEN_MODULE_NAME}::get_token_info`,
+        typeArguments: [],
+        functionArguments: [],
+      }
+    });
+
+    if (result) {
+      return result as unknown as OrkTokenInfo;
+    }
+    return null;
+  } catch (error) {
+    console.error('[getOrkTokenInfo] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Get Circle USDC information
+ * @returns Circle USDC data or null
+ */
+export async function getCircleUSDCInfo(): Promise<CircleUSDCInfo | null> {
+  try {
+    const aptos = getAptosClient();
+    const result = await aptos.view({
+      payload: {
+        function: `${CIRCLE_USDC_INTEGRATION_MODULE_ADDRESS}::${CIRCLE_USDC_INTEGRATION_MODULE_NAME}::get_usdc_info`,
+        typeArguments: [],
+        functionArguments: [],
+      }
+    });
+
+    if (result) {
+      return result as unknown as CircleUSDCInfo;
+    }
+    return null;
+  } catch (error) {
+    console.error('[getCircleUSDCInfo] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Get Hyperion CLMM information
+ * @returns Hyperion CLMM data or null
+ */
+export async function getHyperionCLMMInfo(): Promise<HyperionCLMMInfo | null> {
+  try {
+    const aptos = getAptosClient();
+    const result = await aptos.view({
+      payload: {
+        function: `${HYPERION_CLMM_INTEGRATION_MODULE_ADDRESS}::${HYPERION_CLMM_INTEGRATION_MODULE_NAME}::get_clmm_info`,
+        typeArguments: [],
+        functionArguments: [],
+      }
+    });
+
+    if (result) {
+      return result as unknown as HyperionCLMMInfo;
+    }
+    return null;
+  } catch (error) {
+    console.error('[getHyperionCLMMInfo] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Get Nodit indexing information
+ * @returns Nodit indexing data or null
+ */
+export async function getNoditIndexInfo(): Promise<NoditIndexInfo | null> {
+  try {
+    // This would typically come from an external API or configuration
+    return {
+      indexerUrl: 'https://api.nodit.io', // Placeholder, replace with actual URL
+      webhookUrl: 'https://webhook.nodit.io', // Placeholder, replace with actual URL
+      isActive: true,
+      lastSync: Date.now()
+    };
+  } catch (error) {
+    console.error('[getNoditIndexInfo] Error:', error);
+    return null;
   }
 } 

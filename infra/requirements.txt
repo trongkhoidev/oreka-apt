@@ -1,0 +1,44 @@
+# Oreka Crypto v2 Health Check Service Dependencies
+# Core dependencies
+requests>=2.31.0
+psycopg2-binary>=2.9.7
+redis>=4.6.0
+
+# Monitoring and alerting
+prometheus-client>=0.17.1
+statsd>=4.0.1
+
+# Logging and utilities
+python-json-logger>=2.0.7
+colorlog>=6.7.0
+
+# Time and date handling
+python-dateutil>=2.8.2
+pytz>=2023.3
+
+# HTTP and networking
+urllib3>=2.0.4
+certifi>=2023.7.22
+
+# Data processing
+pandas>=2.0.3
+numpy>=1.24.3
+
+# Configuration management
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.1
+
+# Development tools
+black>=23.7.0
+flake8>=6.0.0
+mypy>=1.5.1
+
+# Optional: Webhook and notification services
+slack-sdk>=3.21.3
+sendgrid>=6.10.0
+twilio>=8.1.0

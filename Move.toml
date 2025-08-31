@@ -1,9 +1,14 @@
 [package]
-name = "yugo"
-version = "1.0.0"
-authors = []
+name = "oreka"
+version = "2.0.0"
+authors = ["YugoNguyen <trongkhoidev@gmail.com>"]
+license = "Apache-2.0"
 
 [dependencies]
+# Aptos Framework
+AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework", rev = "6f83bc6d02207298b2dee91133d75538789bf582" }
+
+# Pyth Oracle for price feeds
 Pyth = { git = "https://github.com/pyth-network/pyth-crosschain.git", subdir = "target_chains/aptos/contracts", rev = "main" }
 
 [addresses]

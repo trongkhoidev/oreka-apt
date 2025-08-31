@@ -1,13 +1,8 @@
 import React from 'react';
-import { useEffect } from 'react';
-import { useRouter } from 'next/router';
+import ListAddressOwner from '../../src/components/ListAddressOwner';
 
 const ListAddressPage: React.FC = () => {
-  const router = useRouter();
-  useEffect(() => {
-    router.replace('/listaddress/1');
-  }, [router]);
-  return null;
+  return <ListAddressOwner />;
 };
 
 export default ListAddressPage; 

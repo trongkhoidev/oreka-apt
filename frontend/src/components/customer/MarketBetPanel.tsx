@@ -1,52 +1,57 @@
-import { Box, HStack, Button, Flex, Text, FormControl, FormLabel, Input } from '@chakra-ui/react';
-import { FaArrowUp, FaArrowDown } from 'react-icons/fa';
+import { Box, Button, Flex, Text, FormControl, FormLabel, Input, VStack, Badge } from '@chakra-ui/react';
+import { FaChartLine } from 'react-icons/fa';
 import { useSpring, animated } from '@react-spring/web';
+import type { Outcome } from '@/types';
 
 enum Phase { Pending = 0, Bidding = 1, Maturity = 2 }
 
 interface MarketBetPanelProps {
   phase: Phase;
-  selectedSide: number | null;
-  setSelectedSide: (side: number) => void;
+  selectedOutcome: number | null;
+  setSelectedOutcome: (outcomeIndex: number) => void;
   bidAmount: string;
   setBidAmount: (amount: string) => void;
-  handleBid: () => void;
+  handleBet: () => void;
   isSubmitting: boolean;
   connected: boolean;
-  longPercentage: number;
-  shortPercentage: number;
-  userPositions: { long: number; short: number };
+  outcomes: Outcome[];
+  outcomePercentages: number[];
+  userPositions: { [outcomeIndex: number]: number };
   fee: string;
-  longAmount: number;
-  shortAmount: number;
+  outcomeAmounts: { [outcomeIndex: number]: number };
   totalAmount: number;
+  paymentAsset: number; // 1 for USDC, 2 for APT
 }
 
 const MarketBetPanel: React.FC<MarketBetPanelProps> = ({
-  phase, selectedSide, setSelectedSide, bidAmount, setBidAmount, handleBid, isSubmitting, connected, longPercentage, shortPercentage, userPositions, fee, longAmount, shortAmount, totalAmount
+  phase, 
+  selectedOutcome, 
+  setSelectedOutcome, 
+  bidAmount, 
+  setBidAmount, 
+  handleBet, 
+  isSubmitting, 
+  connected, 
+  outcomes,
+  outcomePercentages,
+  userPositions, 
+  fee, 
+  outcomeAmounts, 
+  totalAmount,
+  paymentAsset
 }) => {
   // Calculate potential profit (theoretical payout if market resolves immediately after bet)
   const amount = parseFloat(bidAmount) || 0;
   const feePercent = parseFloat(fee) || 0;
   let potentialProfit = 0;
-  if (amount > 0 && (selectedSide === 0 || selectedSide === 1)) {
-    if (selectedSide === 0) {
-      // UP/Long
-      const numerator = totalAmount + amount * 100000000;
-      const denominator = longAmount + amount * 100000000;
-      if (denominator > 0) {
-        potentialProfit = (numerator / denominator) * amount * (1 - feePercent / 100);
-      }
-    } else if (selectedSide === 1) {
-      // DOWN/Short
-      const numerator = totalAmount + amount * 100000000;
-      const denominator = shortAmount + amount * 100000000;
-      if (denominator > 0) {
-        potentialProfit = (numerator / denominator) * amount * (1 - feePercent / 100);
-      }
+  
+  if (amount > 0 && selectedOutcome !== null && selectedOutcome < outcomes.length) {
+    const selectedOutcomeAmount = outcomeAmounts[selectedOutcome] || 0;
+    const numerator = totalAmount + amount * 100000000;
+    const denominator = selectedOutcomeAmount + amount * 100000000;
+    if (denominator > 0) {
+      potentialProfit = (numerator / denominator) * amount * (1 - feePercent / 100);
     }
-  } else {
-    potentialProfit = 0;
   }
 
   // Animated number for profit
@@ -55,38 +60,143 @@ const MarketBetPanel: React.FC<MarketBetPanelProps> = ({
     config: { tension: 170, friction: 26 },
   });
 
-  const hasPosition = userPositions.long > 0 || userPositions.short > 0;
+  const hasPosition = Object.values(userPositions).some(pos => pos > 0);
 
   // Disable input and buttons in Pending phase
   const isPending = phase === Phase.Pending;
 
+  // Get asset symbol
+  const assetSymbol = paymentAsset === 1 ? 'USDC' : 'APT';
+
+  // Get outcome comparison type label
+  const getComparisonTypeLabel = (comparisonType: number): string => {
+    switch (comparisonType) {
+      case 1: return '>';
+      case 2: return '≥';
+      case 3: return '<';
+      case 4: return '≤';
+      case 5: return 'Range';
+      case 6: return 'Open Range';
+      default: return 'Unknown';
+    }
+  };
+
+  // Get outcome color based on index
+  const getOutcomeColor = (index: number): string => {
+    const colors = ['green', 'blue', 'purple', 'orange', 'pink', 'teal', 'cyan', 'yellow'];
+    return colors[index % colors.length];
+  };
+
   return (
     <Box bg="gray.800" p={4} borderRadius="xl" mb={4} borderWidth={1} borderColor="gray.700">
-      {/* LONG/SHORT Ratio */}
-      <HStack align="center" spacing={3} w="100%">
-        <Text fontSize="sm" fontWeight="bold" color="whiteAlpha.800" whiteSpace="nowrap" mb={4}>{longPercentage.toFixed(0)}%</Text>
-        <Flex flex="1" align="center" w="100%" h="18px" borderRadius="full" bg="gray.800" border="5px solid" borderColor="gray.400" position="relative" overflow="hidden" boxShadow="inset 0 1px 3px rgba(0,0,0,0.6)" mb={4} p={0}>
-          {longPercentage === 100 ? (
-            <Box position="absolute" width="100%" bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" h="100%" left="0" top="0" zIndex={1} />
-          ) : shortPercentage === 100 ? (
-            <Box position="absolute" width="100%" bgGradient="linear(to-r, #FF6B81, #D5006D)" h="100%" right="0" top="0" zIndex={0} />
-          ) : (
-            <>
-              <Box position="absolute" width={`${longPercentage}%`} bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)" transition="width 0.6s ease" h="100%" display="flex" alignItems="center" justifyContent="flex-end" pr={3} left="0" top="0" zIndex={1} />
-              <Box position="absolute" right="0" top="0" h="100%" width={`${shortPercentage}%`} bgGradient="linear(to-r, #FF6B81, #D5006D)" transition="width 0.6s ease" display="flex" alignItems="center" justifyContent="flex-start" pl={3} zIndex={0} />
-            </>
-          )}
+      {/* Outcomes Selection */}
+      <VStack spacing={3} mb={4}>
+        <Text fontSize="lg" fontWeight="bold" color="whiteAlpha.900" textAlign="center">
+          Select Outcome
+        </Text>
+        <Flex wrap="wrap" gap={2} justify="center">
+          {outcomes.map((outcome, index) => {
+            const isSelected = selectedOutcome === index;
+            const percentage = outcomePercentages[index] || 0;
+            const color = getOutcomeColor(index);
+            
+            return (
+              <Button
+                key={index}
+                size="sm"
+                colorScheme={color}
+                variant={isSelected ? "solid" : "outline"}
+                onClick={() => setSelectedOutcome(index)}
+                isDisabled={!connected || phase !== 1 || isPending || !outcome.is_active}
+                _hover={{ 
+                  bg: isSelected ? `${color}.500` : `${color}.100`,
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.3)'
+                }}
+                _active={{ transform: 'translateY(0)' }}
+                position="relative"
+                minW="120px"
+              >
+                <VStack spacing={1}>
+                  <Text fontSize="xs" fontWeight="bold">
+                    {outcome.description}
+                  </Text>
+                  <Text fontSize="xs" opacity={0.8}>
+                    {getComparisonTypeLabel(outcome.comparison_type)} {parseFloat(outcome.threshold1) / 1e9}
+                  </Text>
+                  {outcome.comparison_type === 5 || outcome.comparison_type === 6 ? (
+                    <Text fontSize="xs" opacity={0.8}>
+                      to {parseFloat(outcome.threshold2) / 1e9}
+                    </Text>
+                  ) : null}
+                  <Badge 
+                    colorScheme={color} 
+                    variant="subtle" 
+                    fontSize="xs"
+                    position="absolute"
+                    top={1}
+                    right={1}
+                  >
+                    {percentage.toFixed(1)}%
+                  </Badge>
+                </VStack>
+              </Button>
+            );
+          })}
         </Flex>
-        <Text fontSize="sm" fontWeight="bold" color="whiteAlpha.800" whiteSpace="nowrap" mb={4}>{shortPercentage.toFixed(0)}%</Text>
-      </HStack>
-      <HStack spacing={4} mb={3} ml={2} mr={2}>
-        <Button border="1px solid" borderColor="gray.300" borderRadius="20px" colorScheme="gray" bg="gray.800" width="50%" onClick={() => setSelectedSide(0)} leftIcon={<FaArrowUp />} textColor="#28a745" textShadow="1px 1px 12px rgba(40, 167, 69, 0.7)" isDisabled={!connected || phase !== 1 || isPending} _hover={{ bg: "gray.700", boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)" }} _active={{ bg: "#cececc" }} isActive={selectedSide === 0}>UP</Button>
-        <Button border="1px solid" borderColor="gray.300" borderRadius="20px" colorScheme="gray" bg="gray.800" width="50%" onClick={() => setSelectedSide(1)} leftIcon={<FaArrowDown />} textColor="#dc3545" textShadow="1px 1px 12px rgba(220, 53, 69, 0.7)" isDisabled={!connected || phase !== 1 || isPending} _hover={{ bg: "gray.700", boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)" }} _active={{ bg: "#cececc" }} isActive={selectedSide === 1}>DOWN</Button>
-      </HStack>
+      </VStack>
+
+      {/* Outcome Distribution Chart */}
+      <Box mb={4}>
+        <Text fontSize="sm" fontWeight="bold" color="whiteAlpha.800" mb={2} textAlign="center">
+          Outcome Distribution
+        </Text>
+        <Flex 
+          align="center" 
+          w="100%" 
+          h="20px" 
+          borderRadius="full" 
+          bg="gray.800" 
+          border="2px solid" 
+          borderColor="gray.400" 
+          position="relative" 
+          overflow="hidden" 
+          boxShadow="inset 0 1px 3px rgba(0,0,0,0.6)"
+        >
+          {outcomes.map((outcome, index) => {
+            const percentage = outcomePercentages[index] || 0;
+            const color = getOutcomeColor(index);
+            const previousPercentages = outcomePercentages.slice(0, index).reduce((sum, p) => sum + p, 0);
+            
+            return (
+              <Box
+                key={index}
+                position="absolute"
+                left={`${previousPercentages}%`}
+                width={`${percentage}%`}
+                bg={`${color}.500`}
+                h="100%"
+                transition="width 0.6s ease"
+                display="flex"
+                alignItems="center"
+                justifyContent="center"
+                fontSize="xs"
+                color="white"
+                fontWeight="bold"
+                textShadow="1px 1px 2px rgba(0,0,0,0.8)"
+              >
+                {percentage > 5 ? `${percentage.toFixed(1)}%` : ''}
+              </Box>
+            );
+          })}
+        </Flex>
+      </Box>
+
+      {/* Betting Form */}
       <FormControl mb={2} mt={6} color="white">
         <FormLabel>You&apos;re betting</FormLabel>
         <Input 
-          placeholder="Enter amount in APT" 
+          placeholder={`Enter amount in ${assetSymbol}`} 
           bg="gray.800" 
           color="white" 
           borderColor="gray.600" 
@@ -98,51 +208,100 @@ const MarketBetPanel: React.FC<MarketBetPanelProps> = ({
           onChange={e => {
             const val = e.target.value;
             // Only allow positive numbers and decimals
-            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+            if (/^\d*\.?\d*$/.test(val)) {
               setBidAmount(val);
             }
           }}
-          isDisabled={isPending}
+          isDisabled={!connected || phase !== 1 || isPending || selectedOutcome === null}
+          _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px blue.400" }}
         />
-      </FormControl>
-      <HStack spacing={2} mt={1} mb={2} ml={2} mr={2} alignItems="center" justifyContent="center">
-        <Button colorScheme="#0040C1" bg="#0040C1" color="white" _hover={{ bg: "#0040C1" }} width="100%" py={6} mb={3} ml={2} mr={2} onClick={handleBid} isLoading={isSubmitting} loadingText="Placing bid..." isDisabled={!connected || selectedSide === null || phase !== 1 || isPending}>Betting to rich</Button>
-      </HStack>
-      <Flex justify="space-between" px={2} mb={1}>
-        <Text fontSize="lg" color="gray.400">Fee:</Text>
-        <Text fontSize="lg" color="gray.400">{fee}%</Text>
-      </Flex>
-      <Flex justify="space-between" px={2} mb={1} align="center">
-        <Text fontSize="lg" color="gray.400">Potential Profit:</Text>
-        <Box display="flex" alignItems="center" gap={2}>
-          <Box as={animated.span} fontSize="sm" fontWeight="bold" color="white" minW="90px" textAlign="right" mr={3}>
-            {potentialProfit > 0 ? animatedProfit.to((v: number) => `~${v.toFixed(4)} APT`) : '--'}
+        
+        {/* Potential Profit Display */}
+        {selectedOutcome !== null && amount > 0 && (
+          <Box 
+            bg="gray.700" 
+            p={3} 
+            borderRadius="md" 
+            mb={3} 
+            ml={2} 
+            mr={2}
+            border="1px solid"
+            borderColor="gray.600"
+          >
+            <Text fontSize="sm" color="whiteAlpha.700" mb={1}>
+              Potential Profit:
+            </Text>
+            <Text fontSize="lg" fontWeight="bold" color="green.400">
+              <animated.span>
+                {animatedProfit.to((val: number) => `+${val.toFixed(4)} ${assetSymbol}`)}
+              </animated.span>
+            </Text>
           </Box>
+        )}
+
+        {/* Place Bet Button */}
+        <Button
+          w="100%"
+          colorScheme="blue"
+          onClick={handleBet}
+          isLoading={isSubmitting}
+          loadingText="Placing Bet..."
+          isDisabled={
+            !connected || 
+            phase !== 1 || 
+            isPending || 
+            selectedOutcome === null || 
+            !bidAmount || 
+            parseFloat(bidAmount) <= 0
+          }
+          _hover={{ 
+            bg: "blue.600", 
+            transform: "translateY(-2px)",
+            boxShadow: "0 4px 8px rgba(0,0,0,0.3)"
+          }}
+          _active={{ transform: "translateY(0)" }}
+          leftIcon={<FaChartLine />}
+          size="lg"
+          borderRadius="xl"
+        >
+          Place Bet on {selectedOutcome !== null ? outcomes[selectedOutcome]?.description : 'Outcome'}
+        </Button>
+      </FormControl>
+
+      {/* User Position Summary */}
+      {hasPosition && (
+        <Box 
+          bg="gray.700" 
+          p={3} 
+          borderRadius="md" 
+          mt={4} 
+          ml={2} 
+          mr={2}
+          border="1px solid"
+          borderColor="gray.600"
+        >
+          <Text fontSize="sm" fontWeight="bold" color="whiteAlpha.800" mb={2}>
+            Your Positions:
+          </Text>
+          <VStack spacing={1} align="stretch">
+            {outcomes.map((outcome, index) => {
+              const position = userPositions[index] || 0;
+              if (position > 0) {
+                return (
+                  <Flex key={index} justify="space-between" align="center">
+                    <Text fontSize="xs" color="whiteAlpha.700">
+                      {outcome.description}:
+                    </Text>
+                    <Badge colorScheme={getOutcomeColor(index)} variant="solid">
+                      {position} {assetSymbol}
+                    </Badge>
+                  </Flex>
+                );
+              }
+              return null;
+            })}
+          </VStack>
         </Box>
-      </Flex>
-      <Text fontSize="lg" fontWeight="bold" mb={1} mt={3} color="#FEDF56">My Position</Text>
-      {hasPosition ? (
-        <>
-          <Flex justify="space-between" mb={1.5}>
-            <Text color="green.400">LONG:</Text>
-            <Text color="white">{(userPositions.long / 100000000).toFixed(4)} APT</Text>
-          </Flex>
-          <Flex justify="space-between">
-            <Text color="red.400">SHORT:</Text>
-            <Text color="white">{(userPositions.short / 100000000).toFixed(4)} APT</Text>
-          </Flex>
-        </>
-      ) : (
-        <>
-          <Flex justify="space-between" mb={2}>
-            <Text color="green.400">LONG:</Text>
-            <Text color="white">{(userPositions.long / 100000000).toFixed(4)} APT</Text>
-          </Flex>
-          <Flex justify="space-between">
-            <Text color="red.400">SHORT:</Text>
-            <Text color="white">{(userPositions.short / 100000000).toFixed(4)} APT</Text>
-          </Flex>
-        </>
       )}
     </Box>
   );

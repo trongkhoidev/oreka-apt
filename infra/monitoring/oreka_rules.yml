@@ -1,0 +1,192 @@
+groups:
+  - name: oreka_alerts
+    rules:
+      # High error rate alerts
+      - alert: HighErrorRate
+        expr: rate(oreka_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected in Oreka platform"
+          description: "Error rate is {{ $value }} errors per second over 5 minutes"
+
+      # Low liquidity alerts
+      - alert: LowLiquidity
+        expr: oreka_treasury_apt_balance < 1000000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low APT liquidity in treasury"
+          description: "Treasury APT balance is {{ $value }} (below 1 APT threshold)"
+
+      # High betting volume alerts
+      - alert: HighBettingVolume
+        expr: rate(oreka_betting_volume_total[5m]) > 100000000000
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "High betting volume detected"
+          description: "Betting volume is {{ $value }} APT per second over 5 minutes"
+
+      # Market resolution delays
+      - alert: MarketResolutionDelay
+        expr: time() - oreka_market_created_timestamp > 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Market resolution delayed"
+          description: "Market {{ $labels.market_address }} has been active for more than 24 hours"
+
+      # CLMM utilization alerts
+      - alert: HighCLMMUtilization
+        expr: (oreka_clmm_total_deposited / oreka_clmm_max_capacity) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CLMM utilization"
+          description: "CLMM utilization is {{ $value | humanizePercentage }} (above 90% threshold)"
+
+      # ORK token supply alerts
+      - alert: LowORKSupply
+        expr: oreka_ork_remaining_supply < 1000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low ORK token supply"
+          description: "Remaining ORK supply is {{ $value }} (below 1M threshold)"
+
+      # Database connection alerts
+      - alert: DatabaseConnectionLost
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection lost"
+          description: "PostgreSQL database is down"
+
+      # Redis connection alerts
+      - alert: RedisConnectionLost
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis connection lost"
+          description: "Redis cache is down"
+
+      # API response time alerts
+      - alert: HighAPIResponseTime
+        expr: histogram_quantile(0.95, rate(oreka_api_request_duration_seconds_bucket[5m])) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API response time"
+          description: "95th percentile API response time is {{ $value }} seconds (above 2s threshold)"
+
+      # Event processing delays
+      - alert: EventProcessingDelay
+        expr: time() - oreka_last_event_processed_timestamp > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Event processing delayed"
+          description: "Last event processed {{ $value }} seconds ago (above 5 minute threshold)"
+
+      # Treasury fee collection alerts
+      - alert: LowFeeCollection
+        expr: rate(oreka_treasury_fees_collected_total[1h]) < 1000000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low fee collection rate"
+          description: "Fee collection rate is {{ $value }} APT per hour (below 1 APT threshold)"
+
+      # User registration alerts
+      - alert: HighUserRegistration
+        expr: rate(oreka_users_registered_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "High user registration rate"
+          description: "User registration rate is {{ $value }} users per second over 5 minutes"
+
+      # Market creation alerts
+      - alert: HighMarketCreation
+        expr: rate(oreka_markets_created_total[5m]) > 5
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "High market creation rate"
+          description: "Market creation rate is {{ $value }} markets per second over 5 minutes"
+
+      # Bet placement alerts
+      - alert: HighBetPlacement
+        expr: rate(oreka_bets_placed_total[5m]) > 50
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "High bet placement rate"
+          description: "Bet placement rate is {{ $value }} bets per second over 5 minutes"
+
+      # Prize claiming alerts
+      - alert: HighPrizeClaiming
+        expr: rate(oreka_prizes_claimed_total[5m]) > 20
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "High prize claiming rate"
+          description: "Prize claiming rate is {{ $value }} claims per second over 5 minutes"
+
+      # System health checks
+      - alert: SystemUnhealthy
+        expr: oreka_system_health_status != 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "System health check failed"
+          description: "System health status is {{ $value }} (expected 1 for healthy)"
+
+      # Memory usage alerts
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }} (above 90% threshold)"
+
+      # Disk usage alerts
+      - alert: HighDiskUsage
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk usage"
+          description: "Disk usage is {{ $value | humanizePercentage }} (above 90% threshold)"
+
+      # Network latency alerts
+      - alert: HighNetworkLatency
+        expr: histogram_quantile(0.95, rate(oreka_network_latency_seconds_bucket[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High network latency"
+          description: "95th percentile network latency is {{ $value }} seconds (above 100ms threshold)"

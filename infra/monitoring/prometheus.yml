@@ -1,0 +1,74 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "oreka_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Oreka API Gateway
+  - job_name: 'oreka-api-gateway'
+    static_configs:
+      - targets: ['api-gateway:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Oreka Nodit Indexer
+  - job_name: 'oreka-nodit-indexer'
+    static_configs:
+      - targets: ['nodit-indexer:3001']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Oreka Hyperion CLMM
+  - job_name: 'oreka-hyperion-clmm'
+    static_configs:
+      - targets: ['hyperion-clmm:3002']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Oreka Circle USDC
+  - job_name: 'oreka-circle-usdc'
+    static_configs:
+      - targets: ['circle-usdc:3003']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # PostgreSQL
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Node Exporter (if running on host)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+    scrape_interval: 30s
+
+  # Aptos Node (if accessible)
+  - job_name: 'aptos-node'
+    static_configs:
+      - targets: ['fullnode.mainnet.aptoslabs.com:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 60s
+    scrape_timeout: 30s
