@@ -30,7 +30,7 @@ module yugo::pyth_price_adapter {
         pyth_price_update: vector<vector<u8>>,
         payer: &signer
     ): u64 {
-        let price = get_price(price_feed_id, pyth_price_update, payer);
+        let _price = get_price(price_feed_id, pyth_price_update, payer);
         
         
         abort 9002;
@@ -39,7 +39,7 @@ module yugo::pyth_price_adapter {
 
 
     public fun resolve_market_offchain(
-        market_addr: address,
+        _market_addr: address,
         final_price: u64,
         result: u8
     ): (u64, u8) {
