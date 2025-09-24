@@ -48,6 +48,11 @@ module yugo::binary_option_market {
         is_no_winner: bool,
     }
 
+    /// Market configuration - stores registry address
+    struct MarketConfig has key {
+        registry_addr: address,
+    }
+
     /// Global market registry - stores all market instances
     struct MarketRegistry has key {
         /// All market addresses
@@ -137,7 +142,8 @@ module yugo::binary_option_market {
     #[event]
     struct MarketCreatedEvent has drop, store {
         creator: address,
-        market_address: address,
+        market_id: address, // market_address for easy indexing
+        market_address: address, // same as market_id, kept for backward compatibility
         price_feed_id: vector<u8>,
         market_type: MarketType,
         strike_price: u64, // For binary markets
@@ -149,36 +155,49 @@ module yugo::binary_option_market {
         bonus_injected: u64,
         bonus_locked: bool,
         is_no_winner: bool,
+        timestamp_created: u64,
     }
 
     #[event]
     struct BidEvent has drop, store {
         user: address,
+        owner: address, // owner of the market at time of bet
         prediction: bool, // For binary markets (true = LONG, false = SHORT)
         outcome_index: u8, // For multi-outcome markets
         amount: u64,
-        market_address: address,
+        market_id: address, // market_address for easy indexing
+        market_address: address, // same as market_id, kept for backward compatibility
         timestamp_bid: u64,
     }
 
     #[event]
     struct ResolveEvent has drop, store {
         resolver: address,
+        market_id: address, // market_address for easy indexing
+        market_address: address, // same as market_id, kept for backward compatibility
         final_price: u64,
         result: u8,
+        timestamp_resolve: u64,
     }
 
     #[event]
     struct ClaimEvent has drop, store {
         user: address,
-        amount: u64,
+        market_id: address, // market_address for easy indexing
+        market_address: address, // same as market_id, kept for backward compatibility
+        payout_amount: u64, // total amount received
+        principal_returned: u64, // principal returned (if any) => indexer can calculate net_winning
         won: bool,
+        timestamp_claim: u64,
     }
 
     #[event]
     struct WithdrawFeeEvent has drop, store {
         owner: address,
+        market_id: address, // market_address for easy indexing
+        market_address: address, // same as market_id, kept for backward compatibility
         amount: u64,
+        timestamp_withdraw: u64,
     }
 
     // === Errors ===
@@ -190,6 +209,7 @@ module yugo::binary_option_market {
     const EALREADY_CLAIMED: u64 = 108;
     const EINSUFFICIENT_AMOUNT: u64 = 109;
     const EMARKET_REGISTRY_NOT_INITIALIZED: u64 = 110;
+    const ECONFIG_NOT_SET: u64 = 111;
 
     const PHASE_PENDING: u8 = 0;
     const PHASE_BIDDING: u8 = 1;
@@ -225,7 +245,7 @@ module yugo::binary_option_market {
         caller: &signer,
         market_addr: address,
         final_price: u64
-    ) acquires Market, MarketRegistry {
+    ) acquires Market, MarketRegistry, MarketConfig {
         let market = borrow_global_mut<Market>(market_addr);
         let now = timestamp::now_seconds();
         assert!(!market.is_resolved, EMARKET_RESOLVED);
@@ -275,11 +295,15 @@ module yugo::binary_option_market {
         market.final_price = final_price;
 
         // Emit ResolveEvent
-        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global_mut<MarketRegistry>(registry_addr);
         event::emit_event(&mut registry.resolve_events, ResolveEvent {
             resolver: signer::address_of(caller),
+            market_id: market_addr,
+            market_address: market_addr,
             final_price,
             result,
+            timestamp_resolve: timestamp::now_seconds(),
         });
     }
 
@@ -341,6 +365,20 @@ module yugo::binary_option_market {
         }
     }
 
+    /// Initialize market configuration - called once by module publisher
+    public entry fun initialize_market_config(account: &signer, registry_addr: address) {
+        let admin_addr = signer::address_of(account);
+        assert!(admin_addr == @yugo, 112); // Only @yugo can set config
+        assert!(!exists<MarketConfig>(@yugo), 113); // Config already exists
+        move_to(account, MarketConfig { registry_addr });
+    }
+
+    /// Get registry address from config
+    fun get_registry_addr(): address acquires MarketConfig {
+        assert!(exists<MarketConfig>(@yugo), ECONFIG_NOT_SET);
+        borrow_global<MarketConfig>(@yugo).registry_addr
+    }
+
     /// Initialize the global market registry - called once by module publisher
     public entry fun initialize_market_registry(account: &signer) {
         move_to(account, MarketRegistry {
@@ -364,7 +402,7 @@ module yugo::binary_option_market {
         bidding_start_time: u64,
         bidding_end_time: u64,
         maturity_time: u64
-    ) acquires MarketRegistry {
+    ) acquires MarketRegistry, MarketConfig {
         create_binary_market(
             creator,
             price_feed_id,
@@ -385,7 +423,7 @@ module yugo::binary_option_market {
         bidding_start_time: u64,
         bidding_end_time: u64,
         maturity_time: u64
-    ) acquires MarketRegistry {
+    ) acquires MarketRegistry, MarketConfig {
         assert!(bidding_end_time < maturity_time, 1001);
         let current_time = timestamp::now_seconds();
         
@@ -434,7 +472,8 @@ module yugo::binary_option_market {
         let market_address = object::object_address(&market_obj);
         
         // Add to market registry
-        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global_mut<MarketRegistry>(registry_addr);
         vector::push_back(&mut registry.all_markets, market_address);
         
         let info = MarketInfo {
@@ -468,6 +507,7 @@ module yugo::binary_option_market {
         // Emit MarketCreatedEvent
         event::emit_event(&mut registry.market_created_events, MarketCreatedEvent {
             creator: signer::address_of(creator),
+            market_id: market_address,
             market_address,
             price_feed_id,
             market_type: types::create_binary_market_type(),
@@ -480,7 +520,10 @@ module yugo::binary_option_market {
             bonus_injected: 0,
             bonus_locked: false,
             is_no_winner: false,
+            timestamp_created: timestamp::now_seconds(),
         });
+
+        // Profiles: bump markets created
     }
 
     /// Create a new multi-outcome market
@@ -492,7 +535,7 @@ module yugo::binary_option_market {
         bidding_start_time: u64,
         bidding_end_time: u64,
         maturity_time: u64
-    ) acquires MarketRegistry {
+    ) acquires MarketRegistry, MarketConfig {
         assert!(bidding_end_time < maturity_time, 1001);
         assert!(vector::length(&price_ranges) >= 2, 1002); // At least 2 outcomes
         let current_time = timestamp::now_seconds();
@@ -560,7 +603,8 @@ module yugo::binary_option_market {
         let market_address = object::object_address(&market_obj);
         
         // Add to market registry
-        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global_mut<MarketRegistry>(registry_addr);
         vector::push_back(&mut registry.all_markets, market_address);
         
         let info = MarketInfo {
@@ -594,6 +638,7 @@ module yugo::binary_option_market {
         // Emit MarketCreatedEvent
         event::emit_event(&mut registry.market_created_events, MarketCreatedEvent {
             creator: signer::address_of(creator),
+            market_id: market_address,
             market_address,
             price_feed_id,
             market_type: types::create_multi_outcome_market_type(),
@@ -606,7 +651,10 @@ module yugo::binary_option_market {
             bonus_injected: 0,
             bonus_locked: false,
             is_no_winner: false,
+            timestamp_created: timestamp::now_seconds(),
         });
+
+        // Profiles: bump markets created
     }
 
     /// Get the current phase of the market.
@@ -624,12 +672,12 @@ module yugo::binary_option_market {
     }
 
     /// Allows a user to place a bid on a binary market (backward compatibility)
-    public entry fun bid(owner: &signer, market_addr: address, prediction: bool, amount: u64, timestamp_bid: u64) acquires Market, MarketRegistry {
+    public entry fun bid(owner: &signer, market_addr: address, prediction: bool, amount: u64, timestamp_bid: u64) acquires Market, MarketRegistry, MarketConfig {
         bid_binary(owner, market_addr, prediction, amount, timestamp_bid)
     }
 
     /// Allows a user to place a bid on a binary market
-    public entry fun bid_binary(owner: &signer, market_addr: address, prediction: bool, amount: u64, timestamp_bid: u64) acquires Market, MarketRegistry {
+    public entry fun bid_binary(owner: &signer, market_addr: address, prediction: bool, amount: u64, timestamp_bid: u64) acquires Market, MarketRegistry, MarketConfig {
         let market = borrow_global_mut<Market>(market_addr);
         
         let now = timestamp::now_seconds();
@@ -669,13 +717,17 @@ module yugo::binary_option_market {
         market.total_amount = market.total_amount + amount;
         table::add(&mut market.bids, bidder_address, new_user_bid);
 
+
         // Emit BidEvent
-        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global_mut<MarketRegistry>(registry_addr);
         event::emit_event(&mut registry.bid_events, BidEvent {
             user: bidder_address,
+            owner: market.creator,
             prediction,
             outcome_index: 0, // Not used for binary markets
             amount,
+            market_id: market_addr,
             market_address: market_addr,
             timestamp_bid,
         });
@@ -688,7 +740,7 @@ module yugo::binary_option_market {
         outcome_index: u8, 
         amount: u64, 
         timestamp_bid: u64
-    ) acquires Market, MarketRegistry {
+    ) acquires Market, MarketRegistry, MarketConfig {
         let market = borrow_global_mut<Market>(market_addr);
         
         let now = timestamp::now_seconds();
@@ -725,13 +777,17 @@ module yugo::binary_option_market {
         market.total_amount = market.total_amount + amount;
         table::add(&mut market.bids, bidder_address, user_bid);
 
+
         // Emit BidEvent
-        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global_mut<MarketRegistry>(registry_addr);
         event::emit_event(&mut registry.bid_events, BidEvent {
             user: bidder_address,
+            owner: market.creator,
             prediction: false, // Not used for multi-outcome
             outcome_index,
             amount,
+            market_id: market_addr,
             market_address: market_addr,
             timestamp_bid,
         });
@@ -743,7 +799,7 @@ module yugo::binary_option_market {
         caller: &signer, 
         market_addr: address, 
         pyth_price_update: vector<vector<u8>>
-    ) acquires Market, MarketRegistry {
+    ) acquires Market, MarketRegistry, MarketConfig {
         let market = borrow_global_mut<Market>(market_addr);
 
         let now = timestamp::now_seconds();
@@ -808,16 +864,20 @@ module yugo::binary_option_market {
         };
 
         // Emit ResolveEvent
-        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global_mut<MarketRegistry>(registry_addr);
         event::emit_event(&mut registry.resolve_events, ResolveEvent {
             resolver: signer::address_of(caller),
+            market_id: market_addr,
+            market_address: market_addr,
             final_price,
             result,
+            timestamp_resolve: timestamp::now_seconds(),
         });
     }
 
     /// Allows a user to claim their winnings or refund (backward compatibility)
-    public entry fun claim(owner: &signer, market_addr: address) acquires Market, MarketRegistry {
+    public entry fun claim(owner: &signer, market_addr: address) acquires Market, MarketRegistry, MarketConfig {
         let market = borrow_global<Market>(market_addr);
         if (types::is_binary_market(&market.market_type)) {
             claim_binary(owner, market_addr)
@@ -827,7 +887,7 @@ module yugo::binary_option_market {
     }
 
     /// Allows a user to claim their winnings or refund for binary market
-    public entry fun claim_binary(owner: &signer, market_addr: address) acquires Market, MarketRegistry {
+    public entry fun claim_binary(owner: &signer, market_addr: address) acquires Market, MarketRegistry, MarketConfig {
         let market = borrow_global_mut<Market>(market_addr);
         
         let _now = timestamp::now_seconds();
@@ -882,16 +942,21 @@ module yugo::binary_option_market {
         table::add(&mut market.claimed_users, bidder_address, true);
 
         // Emit ClaimEvent
-        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global_mut<MarketRegistry>(registry_addr);
         event::emit_event(&mut registry.claim_events, ClaimEvent {
             user: bidder_address,
-            amount: claim_amount,
+            market_id: market_addr,
+            market_address: market_addr,
+            payout_amount: claim_amount,
+            principal_returned: if (won) { if (market.result == 0) { user_bid.long_amount } else { user_bid.short_amount } } else { 0 },
             won,
+            timestamp_claim: timestamp::now_seconds(),
         });
     }
 
     /// Allows a user to claim their winnings or refund for multi-outcome market
-    public entry fun claim_multi_outcome(owner: &signer, market_addr: address) acquires Market, MarketRegistry {
+    public entry fun claim_multi_outcome(owner: &signer, market_addr: address) acquires Market, MarketRegistry, MarketConfig {
         let market = borrow_global_mut<Market>(market_addr);
         
         let _now = timestamp::now_seconds();
@@ -935,20 +1000,28 @@ module yugo::binary_option_market {
         let payout = coin::extract(&mut market.coin_vault, claim_amount);
         coin::deposit(bidder_address, payout);
 
+        // Profiles: record winning for multi-outcome
+        let _prize_only = claim_amount - user_amount;
+
         // Mark user as claimed
         table::add(&mut market.claimed_users, bidder_address, true);
 
         // Emit ClaimEvent
-        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global_mut<MarketRegistry>(registry_addr);
         event::emit_event(&mut registry.claim_events, ClaimEvent {
             user: bidder_address,
-            amount: claim_amount,
+            market_id: market_addr,
+            market_address: market_addr,
+            payout_amount: claim_amount,
+            principal_returned: if (won) { user_amount } else { 0 },
             won,
+            timestamp_claim: timestamp::now_seconds(),
         });
     }
 
     /// Allows the owner to withdraw the fee after the market is resolved.
-    public entry fun withdraw_fee(owner: &signer, market_obj: Object<Market>) acquires Market, MarketRegistry {
+    public entry fun withdraw_fee(owner: &signer, market_obj: Object<Market>) acquires Market, MarketRegistry, MarketConfig {
         let market_address = object::object_address(&market_obj);
         let market = borrow_global_mut<Market>(market_address);
         
@@ -972,11 +1045,16 @@ module yugo::binary_option_market {
         coin::deposit(signer::address_of(owner), payout);
         market.fee_withdrawn = true;
 
+
         // Emit WithdrawFeeEvent
-        let registry = borrow_global_mut<MarketRegistry>(@yugo);
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global_mut<MarketRegistry>(registry_addr);
         event::emit_event(&mut registry.withdraw_fee_events, WithdrawFeeEvent {
             owner: signer::address_of(owner),
+            market_id: market_address,
+            market_address: market_address,
             amount: fee,
+            timestamp_withdraw: timestamp::now_seconds(),
         });
     }
 
@@ -1080,8 +1158,9 @@ module yugo::binary_option_market {
 
     // Get all markets
     #[view]
-    public fun get_all_markets(): vector<MarketInfo> acquires MarketRegistry {
-        let registry = borrow_global<MarketRegistry>(@yugo);
+    public fun get_all_markets(): vector<MarketInfo> acquires MarketRegistry, MarketConfig {
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global<MarketRegistry>(registry_addr);
         let infos = vector::empty<MarketInfo>();
         let addresses = &registry.all_markets;
         let len = vector::length(addresses);
@@ -1099,8 +1178,9 @@ module yugo::binary_option_market {
 
     // Get markets by owner
     #[view]
-    public fun get_markets_by_owner(owner: address): vector<MarketInfo> acquires MarketRegistry {
-        let registry = borrow_global<MarketRegistry>(@yugo);
+    public fun get_markets_by_owner(owner: address): vector<MarketInfo> acquires MarketRegistry, MarketConfig {
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global<MarketRegistry>(registry_addr);
         if (table::contains(&registry.owner_markets, owner)) {
             let addresses = table::borrow(&registry.owner_markets, owner);
             let infos = vector::empty<MarketInfo>();
@@ -1122,8 +1202,9 @@ module yugo::binary_option_market {
 
     // Get owner's market count
     #[view]
-    public fun get_owner_market_count(owner: address): u64 acquires MarketRegistry {
-        let registry = borrow_global<MarketRegistry>(@yugo);
+    public fun get_owner_market_count(owner: address): u64 acquires MarketRegistry, MarketConfig {
+        let registry_addr = get_registry_addr();
+        let registry = borrow_global<MarketRegistry>(registry_addr);
         if (table::contains(&registry.owner_markets, owner)) {
             vector::length(table::borrow(&registry.owner_markets, owner))
         } else {
@@ -1150,4 +1231,5 @@ module yugo::binary_option_market {
     public fun get_bonus_injected(info: &MarketInfo): u64 {
         info.bonus_injected
     }
+
 }

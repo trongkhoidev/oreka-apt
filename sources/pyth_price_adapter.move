@@ -30,11 +30,8 @@ module yugo::pyth_price_adapter {
         pyth_price_update: vector<vector<u8>>,
         payer: &signer
     ): u64 {
-        let _price = get_price(price_feed_id, pyth_price_update, payer);
-        
-        
-        abort 9002;
-        0 // dummy
+        let price = get_price(price_feed_id, pyth_price_update, payer);
+        unwrap_i64(pyth::price::get_price(&price))
     }
 
 
