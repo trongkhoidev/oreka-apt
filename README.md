@@ -25,9 +25,9 @@ A professional, real-time decentralized binary options trading platform built on
 - **Location**: `sources/`
 - **Contracts**:
   - `types.move`: Core data structures and event definitions.
-  - `binary_option_market.move`: Main binary options contract (market logic, events, settlement, claim, withdraw fee, registry, view functions).
+  - `market_core.move`: Main binary options contract (market logic, events, settlement, claim, withdraw fee, registry, view functions).
   - `pyth_price_adapter.move`: Oracle price integration (Pyth).
-- **Tests**: `tests/binary_option_market_tests.move` – Unit tests for contract logic.
+- **Tests**: `tests/market_core_tests.move` – Unit tests for contract logic.
 - **Dependencies**: [Pyth Crosschain](https://github.com/pyth-network/pyth-crosschain.git)
 
 ### Frontend
@@ -137,7 +137,7 @@ NEXT_PUBLIC_BACKEND_API=http://localhost:3000
 
 ```
 oreka/
-├── sources/                # Move smart contracts (types, binary_option_market, pyth_price_adapter)
+├── sources/                # Move smart contracts (types, market_core, pyth_price_adapter)
 ├── tests/                  # Move contract tests
 ├── scripts/                # Deploy/test scripts
 ├── frontend/               # Next.js frontend

@@ -1,4 +1,4 @@
-module yugo::global_pool {
+module yugo::global_pool_v2 {
     use std::signer;
     use aptos_framework::coin::{Self, Coin};
     use aptos_framework::aptos_coin::AptosCoin;
@@ -115,10 +115,10 @@ module yugo::global_pool {
         (coin::value(&pool.vault), pool.lifetime_in, pool.lifetime_out, pool.pending_clmm, pool.active_injections)
     }
 
-    // Return the admin address of the Global Pool stored under @yugo
+    // Return the admin address of the Global Pool stored at the given address
     #[view]
-    public fun get_global_pool_admin(): address acquires GlobalPool {
-        let pool = borrow_global<GlobalPool>(@yugo);
+    public fun get_global_pool_admin(admin_addr: address): address acquires GlobalPool {
+        let pool = borrow_global<GlobalPool>(admin_addr);
         pool.admin
     }
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { 
   Box, 
   useToast, 
@@ -11,6 +12,7 @@ import { PriceService } from '../services/PriceService';
 import { 
   estimateDeployMarketGas, 
   deployMarketWithGasSettings,
+  deployMultiOutcomeMarket,
   GasSpeed,
   GasEstimate,
 } from '../services/aptosMarketService';
@@ -25,9 +27,78 @@ const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal plac
 
 
 const Owner: React.FC = () => {
+  const router = useRouter();
   const { connected, account, signAndSubmitTransaction } = useWallet();
   
   const [strikePrice, setStrikePrice] = useState('');
+  const [isMultiOutcome, setIsMultiOutcome] = useState(false);
+  const [ranges, setRanges] = useState<{ min: string; max: string; name: string; kind: 'lt'|'range'|'gt' }[]>([
+    { min: '', max: '', name: '', kind: 'range' },
+    { min: '', max: '', name: '', kind: 'range' }
+  ]);
+  const [rangesError, setRangesError] = useState<string | null>(null);
+
+  // Validate ranges whenever they change
+  useEffect(() => {
+    if (isMultiOutcome && ranges.length > 0) {
+      const error = validateRanges(ranges);
+      setRangesError(error);
+    } else {
+      setRangesError(null);
+    }
+  }, [ranges, isMultiOutcome]);
+
+  // Helper function to format numeric input
+  const formatNumericInput = (value: string): string => {
+    // Remove any non-numeric characters except decimal point
+    const cleaned = value.replace(/[^0-9.]/g, '');
+    // Ensure only one decimal point
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      return parts[0] + '.' + parts.slice(1).join('');
+    }
+    // Limit to 8 decimal places
+    if (parts[1] && parts[1].length > 8) {
+      return parts[0] + '.' + parts[1].substring(0, 8);
+    }
+    return cleaned;
+  };
+
+  const validateRanges = (items: { min: string; max: string; name: string; kind: 'lt'|'range'|'gt' }[]): string | null => {
+    // Filter out empty ranges
+    const nonEmptyRanges = items.filter(r => {
+      if (r.kind === 'lt') return r.max.trim() !== '';
+      if (r.kind === 'gt') return r.min.trim() !== '';
+      return r.min.trim() !== '' && r.max.trim() !== '';
+    });
+
+    if (nonEmptyRanges.length < 2) {
+      return 'At least 2 valid ranges required.';
+    }
+
+    const normalized = nonEmptyRanges.map((r, i) => {
+      const min = r.kind === 'lt' ? Number.NEGATIVE_INFINITY : Number(r.min);
+      const max = r.kind === 'gt' ? Number.POSITIVE_INFINITY : Number(r.max);
+      return { idx: i, min, max, original: r };
+    });
+    
+    // basic validity
+    for (const n of normalized) {
+      if (Number.isNaN(n.min) || Number.isNaN(n.max)) return 'All boundaries must be numeric.';
+      if (n.min >= n.max) return 'Each outcome must satisfy min < max.';
+      if (n.min <= 0 && n.min !== Number.NEGATIVE_INFINITY) return 'All values must be positive numbers.';
+      if (n.max <= 0 && n.max !== Number.POSITIVE_INFINITY) return 'All values must be positive numbers.';
+    }
+    
+    // check overlap (O(n log n))
+    const sorted = [...normalized].sort((a,b) => a.min - b.min);
+    for (let i=1;i<sorted.length;i++) {
+      if (sorted[i].min < sorted[i-1].max) {
+        return 'Outcomes must be non-overlapping and sorted.';
+      }
+    }
+    return null;
+  };
   const [selectedPair, setSelectedPair] = useState<TradingPairInfo | null>(null);
   const [maturityDate, setMaturityDate] = useState('');
   const [maturityTime, setMaturityTime] = useState('');
@@ -98,16 +169,19 @@ const Owner: React.FC = () => {
 
   // Estimate gas when form parameters change
   const estimateGas = useCallback(async () => {
-    if (!selectedPair || !strikePrice || !maturityDate || !maturityTime || !biddingStartDate || !biddingStartTime || !biddingEndDate || !biddingEndTime) {
+    if (!selectedPair || !maturityDate || !maturityTime || !biddingStartDate || !biddingStartTime || !biddingEndDate || !biddingEndTime) {
       return;
     }
     try {
       setIsEstimatingGas(true);
-      const strikePriceInteger = Math.round(parseFloat(strikePrice) * STRIKE_PRICE_MULTIPLIER);
+      const strikePriceInteger = isMultiOutcome ? 0 : Math.round(parseFloat(strikePrice || '0') * STRIKE_PRICE_MULTIPLIER);
       const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
       const biddingStartTimestamp = Math.floor(new Date(`${biddingStartDate} ${biddingStartTime}`).getTime() / 1000);
       const biddingEndTimestamp = Math.floor(new Date(`${biddingEndDate} ${biddingEndTime}`).getTime() / 1000);
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
+      if (isMultiOutcome && rangesError) {
+        return; // skip estimation until valid
+      }
       const params = {
         pairName: getPriceFeedIdFromPairName(selectedPair.pair),
         strikePrice: String(strikePriceInteger),
@@ -125,13 +199,17 @@ const Owner: React.FC = () => {
     } finally {
       setIsEstimatingGas(false);
     }
-  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed, feePercentage]);
+  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed, feePercentage, isMultiOutcome, rangesError]);
 
   useEffect(() => {
-    if (selectedPair && strikePrice && maturityDate && maturityTime && biddingStartDate && biddingStartTime && biddingEndDate && biddingEndTime) {
+    const hasRequiredFields = isMultiOutcome 
+      ? selectedPair && maturityDate && maturityTime && biddingStartDate && biddingStartTime && biddingEndDate && biddingEndTime && !rangesError
+      : selectedPair && strikePrice && maturityDate && maturityTime && biddingStartDate && biddingStartTime && biddingEndDate && biddingEndTime;
+    
+    if (hasRequiredFields) {
       estimateGas();
     }
-  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed, feePercentage, estimateGas]);
+  }, [selectedPair, strikePrice, maturityDate, maturityTime, biddingStartDate, biddingStartTime, biddingEndDate, biddingEndTime, selectedGasSpeed, feePercentage, estimateGas, isMultiOutcome, rangesError]);
 
   // Thêm log để debug gasEstimate khi thay đổi gas option
   useEffect(() => {
@@ -158,40 +236,97 @@ const Owner: React.FC = () => {
       toast({ title: 'Wallet not connected', description: 'Please connect your Aptos wallet first', status: 'error', duration: 3000, isClosable: true });
       return;
     }
-    if (!selectedPair || !strikePrice || !maturityDate || !maturityTime || !biddingStartDate || !biddingStartTime || !biddingEndDate || !biddingEndTime) {
+    if (!selectedPair || !maturityDate || !maturityTime || !biddingStartDate || !biddingStartTime || !biddingEndDate || !biddingEndTime) {
       toast({ title: 'Missing required fields', description: 'Please fill in all required fields', status: 'error', duration: 3000, isClosable: true });
       return;
     }
     setIsDeploying(true);
     try {
-      const strikePriceInteger = Math.round(parseFloat(strikePrice) * STRIKE_PRICE_MULTIPLIER);
+      const strikePriceInteger = isMultiOutcome ? 0 : Math.round(parseFloat(strikePrice || '0') * STRIKE_PRICE_MULTIPLIER);
       const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
       const biddingStartTimestamp = Math.floor(new Date(`${biddingStartDate} ${biddingStartTime}`).getTime() / 1000);
       const biddingEndTimestamp = Math.floor(new Date(`${biddingEndDate} ${biddingEndTime}`).getTime() / 1000);
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
-      if (isNaN(strikePriceInteger) || isNaN(maturityTimestamp) || isNaN(biddingStartTimestamp) || isNaN(biddingEndTimestamp) || isNaN(feeValue)) {
+      if (isNaN(maturityTimestamp) || isNaN(biddingStartTimestamp) || isNaN(biddingEndTimestamp) || isNaN(feeValue)) {
         toast({ title: 'Invalid input', description: 'Please check all numeric fields.', status: 'error', duration: 4000, isClosable: true });
         setIsDeploying(false);
         return;
       }
-      const params = {
-        pairName: getPriceFeedIdFromPairName(selectedPair.pair),
-        strikePrice: strikePriceInteger,
-        feePercentage: feeValue,
-        biddingStartTime: biddingStartTimestamp,
-        biddingEndTime: biddingEndTimestamp,
-        maturityTime: maturityTimestamp,
-      };
-      // Wrap signAndSubmitTransaction to return a string hash if needed
-      const txHash = await deployMarketWithGasSettings(
-        async (tx: unknown) => {
-          const result = await (signAndSubmitTransaction as (tx: unknown) => Promise<{ hash: string }>)(tx);
-          return result.hash;
-        },
-        params,
-        selectedGasSpeed
-      );
-      toast({ title: 'Market deployment transaction submitted!', description: `Transaction hash: ${txHash}`, status: 'info', duration: 5000, isClosable: true, });
+      if (isMultiOutcome) {
+        const err = validateRanges(ranges);
+        setRangesError(err);
+        if (err) {
+          throw new Error(err);
+        }
+        // Validate dynamic ranges
+        const U64_MAX_STR = '18446744073709551615';
+        const cleaned = ranges.slice(0, 10).map((r, i) => {
+          const isLT = r.kind === 'lt';
+          const isGT = r.kind === 'gt';
+          // Convert APT to octas (multiply by 1e8)
+          const minVal = isLT ? '0' : String(Math.floor(Number(r.min) * 1e8));
+          const maxVal = isGT ? U64_MAX_STR : String(Math.floor(Number(r.max) * 1e8));
+          return {
+            // keep as string to avoid JS precision issues for u64 max
+            min: minVal,
+            max: maxVal,
+            name: r.name && r.name.trim() ? r.name.trim() : `O${i}`
+          };
+        }).filter(r => r.min !== 'NaN' && r.max !== 'NaN');
+        if (cleaned.length < 2) throw new Error('At least 2 ranges required');
+        // Normalize open-ended to large finite bounds for client-side check (contract still validates ranges)
+        const parsed = cleaned.map(r => ({
+          min: r.min,
+          max: r.max,
+          name: r.name
+        }));
+        parsed.sort((a,b) => Number(a.min) - Number(b.min));
+        for (let i=0;i<parsed.length;i++) {
+          if (Number(parsed[i].min) >= Number(parsed[i].max)) {
+            throw new Error('Invalid ranges: min < max and numeric');
+          }
+          if (i>0 && Number(parsed[i].min) < Number(parsed[i-1].max)) {
+            throw new Error('Ranges must be non-overlapping and sorted');
+          }
+        }
+        const txHash = await deployMultiOutcomeMarket(
+          async (tx: unknown) => {
+            const result = await (signAndSubmitTransaction as (tx: unknown) => Promise<{ hash: string }>)(tx);
+            return result.hash;
+          },
+          {
+            pairName: getPriceFeedIdFromPairName(selectedPair.pair),
+            priceRanges: parsed,
+            feePercentage: feeValue,
+            biddingStartTime: biddingStartTimestamp,
+            biddingEndTime: biddingEndTimestamp,
+            maturityTime: maturityTimestamp,
+          }
+        );
+        toast({ title: 'Multi-outcome market submitted!', description: `Transaction hash: ${txHash}`, status: 'info', duration: 5000, isClosable: true });
+        try { localStorage.removeItem('allMarketsCache'); } catch {}
+        router.push('/listaddress/1');
+      } else {
+        const params = {
+          pairName: getPriceFeedIdFromPairName(selectedPair.pair),
+          strikePrice: strikePriceInteger,
+          feePercentage: feeValue,
+          biddingStartTime: biddingStartTimestamp,
+          biddingEndTime: biddingEndTimestamp,
+          maturityTime: maturityTimestamp,
+        };
+        const txHash = await deployMarketWithGasSettings(
+          async (tx: unknown) => {
+            const result = await (signAndSubmitTransaction as (tx: unknown) => Promise<{ hash: string }>)(tx);
+            return result.hash;
+          },
+          params,
+          selectedGasSpeed
+        );
+        toast({ title: 'Binary market submitted!', description: `Transaction hash: ${txHash}`, status: 'info', duration: 5000, isClosable: true });
+        try { localStorage.removeItem('allMarketsCache'); } catch {}
+        router.push('/listaddress/1');
+      }
       resetForm();
       setTimeout(() => fetchDeployedContracts(), 3000);
     } catch (error: unknown) {
@@ -234,7 +369,10 @@ const Owner: React.FC = () => {
   };
   const priceChange = getPriceChange();
 
-  const progressFields = [selectedPair, strikePrice, biddingStartDate && biddingStartTime, biddingEndDate && biddingEndTime, maturityDate && maturityTime, feePercentage];
+  // For multi-outcome, we don't need strikePrice, but we need valid ranges
+  const progressFields = isMultiOutcome 
+    ? [selectedPair, ranges.length >= 2 && !rangesError, biddingStartDate && biddingStartTime, biddingEndDate && biddingEndTime, maturityDate && maturityTime, feePercentage]
+    : [selectedPair, strikePrice, biddingStartDate && biddingStartTime, biddingEndDate && biddingEndTime, maturityDate && maturityTime, feePercentage];
   const filledFields = progressFields.filter(Boolean).length;
   // Progress: Initial (0%), Creating (80%), Finished (100%)
   let progressStep = 0;
@@ -285,7 +423,7 @@ const Owner: React.FC = () => {
               selectedPair={selectedPair}
               setSelectedPair={setSelectedPair}
               strikePrice={strikePrice}
-              setStrikePrice={setStrikePrice}
+              setStrikePrice={(value) => setStrikePrice(formatNumericInput(value))}
               biddingStartDate={biddingStartDate}
               setBiddingStartDate={setBiddingStartDate}
               biddingStartTime={biddingStartTime}
@@ -308,6 +446,15 @@ const Owner: React.FC = () => {
               isFinishing={isFinishing}
               showFeeTooltip={showFeeTooltip}
               setShowFeeTooltip={setShowFeeTooltip}
+              isMultiOutcome={isMultiOutcome}
+              setIsMultiOutcome={setIsMultiOutcome}
+              ranges={ranges}
+              onChangeRange={(idx, field, value) => {
+                const formattedValue = (field === 'min' || field === 'max') ? formatNumericInput(value) : value;
+                setRanges(prev => prev.map((r,i) => i===idx ? { ...r, [field]: formattedValue } : r));
+              }}
+              onAddRange={() => setRanges(prev => prev.length>=10 ? prev : [...prev, { min:'', max:'', name:'', kind:'range' }])}
+              onRemoveRange={(idx) => setRanges(prev => prev.filter((_,i)=>i!==idx))}
             />
           </Box>
           {/* Box Preview + Network Fee */}
@@ -325,6 +472,9 @@ const Owner: React.FC = () => {
               maturityTime={maturityTime}
               feePercentage={feePercentage}
               formatShortDateTime={formatShortDateTime}
+              isMultiOutcome={isMultiOutcome}
+              ranges={ranges}
+              rangesError={rangesError}
             />
             <NetworkFeeBox
               selectedGasSpeed={selectedGasSpeed}

@@ -11,8 +11,18 @@ export const networkConfig = {
     faucetUrl: null,
     chainId: 1
   },
-  
-  
+  testnet: {
+    name: 'testnet',
+    nodeUrl: 'https://fullnode.testnet.aptoslabs.com/v1',
+    faucetUrl: 'https://faucet.testnet.aptoslabs.com',
+    chainId: 2
+  },
+  devnet: {
+    name: 'devnet',
+    nodeUrl: 'https://fullnode.devnet.aptoslabs.com/v1',
+    faucetUrl: 'https://faucet.devnet.aptoslabs.com',
+    chainId: 0
+  }
 };
 
 // Get current network based on environment

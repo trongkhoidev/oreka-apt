@@ -5,9 +5,10 @@ import {
   Button,
   Icon,
   Text,
+  Divider,
 } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
-import { FaHome, FaPlus, FaList, FaNewspaper } from 'react-icons/fa';
+import { FaHome, FaPlus, FaList, FaNewspaper, FaUser, FaTrophy, FaBook } from 'react-icons/fa';
 import Link from 'next/link';
 
 const NavigationSidebar: React.FC = () => {
@@ -34,7 +35,7 @@ const NavigationSidebar: React.FC = () => {
         <Box mb={12} textAlign="center">
           <Text fontSize="4xl" fontWeight="extrabold" bgGradient="linear(to-r, #4F8CFF, #A770EF)" bgClip="text" letterSpacing="wider" textShadow="0 0 24px #4F8CFF99" fontFamily="'Orbitron', sans-serif">OREKA</Text>
         </Box>
-        <VStack spacing={6} align="stretch" w="full">
+        <VStack spacing={6} align="stretch" w="full" flex="1">
           <Link href="/" passHref legacyBehavior>
             <Button as="a" leftIcon={<Icon as={FaHome} fontSize="2xl" />} variant="ghost" w="full" justifyContent="flex-start"
               bg={router.pathname === '/' ? '#23262f' : 'transparent'}
@@ -99,6 +100,42 @@ const NavigationSidebar: React.FC = () => {
               _active={{ bg: '#23262f', color: 'white' }}
             >News</Button>
           </Link>
+          <Box mt="auto" w="full">
+            <Divider borderColor="#23262f" mb={4} />
+          </Box>
+          <VStack spacing={4} align="stretch" w="full" mt={4}>
+            <Link href="/profiles" passHref legacyBehavior>
+              <Button as="a" leftIcon={<Icon as={FaUser} fontSize="2xl" />} variant="ghost" w="full" justifyContent="flex-start"
+                bg={router.pathname === '/profiles' ? '#23262f' : 'transparent'}
+                color={router.pathname === '/profiles' ? 'white' : '#A0A4AE'}
+                borderRadius="full"
+                fontWeight={router.pathname === '/profiles' ? 'bold' : 'normal'}
+                fontSize="xl"
+                py={6}
+                pl={8}
+                _hover={{ bg: router.pathname === '/profiles' ? '#23262f' : 'rgba(79,140,255,0.04)', color: 'white' }}
+                _active={{ bg: '#23262f', color: 'white' }}
+              >Profiles</Button>
+            </Link>
+            <Link href="/leaderboards" passHref legacyBehavior>
+              <Button as="a" leftIcon={<Icon as={FaTrophy} fontSize="2xl" />} variant="ghost" w="full" justifyContent="flex-start"
+                bg={router.pathname === '/leaderboards' ? '#23262f' : 'transparent'}
+                color={router.pathname === '/leaderboards' ? 'white' : '#A0A4AE'}
+                borderRadius="full"
+                fontWeight={router.pathname === '/leaderboards' ? 'bold' : 'normal'}
+                fontSize="xl"
+                py={6}
+                pl={8}
+                _hover={{ bg: router.pathname === '/leaderboards' ? '#23262f' : 'rgba(79,140,255,0.04)', color: 'white' }}
+                _active={{ bg: '#23262f', color: 'white' }}
+              >Leaderboards</Button>
+            </Link>
+            <Button as="a" href="https://oreka-documentation.vercel.app/" target="_blank" rel="noreferrer"
+              leftIcon={<Icon as={FaBook} fontSize="2xl" />} variant="ghost" w="full" justifyContent="flex-start"
+              bg="transparent" color="#A0A4AE" borderRadius="full" fontSize="xl" py={6} pl={8}
+              _hover={{ bg: 'rgba(79,140,255,0.04)', color: 'white' }} _active={{ bg: '#23262f', color: 'white' }}
+            >Documentation</Button>
+          </VStack>
         </VStack>
       </VStack>
       <Box position="absolute" right={0} top={0} w="1.5px" h="100vh" bg="#23262f" zIndex={200} />

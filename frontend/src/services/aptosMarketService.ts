@@ -1,19 +1,12 @@
 // import only what is used
-import { BINARY_OPTION_MARKET_MODULE_ADDRESS } from '@/config/contracts';
-import { getAptosClient } from '../config/network';
+import { market_core_MODULE_ADDRESS, market_core_MODULE_NAME } from '@/config/contracts';
+import { getAptosClient, getNetworkInfo } from '../config/network';
+// import { getPythPriceId } from '../config/geomi';
 import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
 import { getPairAndSymbolFromPriceFeedId } from '../config/tradingPairs';
+import { dispatchMarketUpdate, dispatchMarketListRefresh } from '../utils/marketEvents';
 
-// Debug: Monkey-patch fetch to log stacktrace when calling /module/binary_option_market
-if (typeof window !== 'undefined' && window.fetch) {
-  const originalFetch = window.fetch;
-  window.fetch = function(...args) {
-    if (typeof args[0] === 'string' && args[0].includes('/module/binary_option_market')) {
-      console.trace('Fetch /module/binary_option_market called from:');
-    }
-    return originalFetch.apply(this, args);
-  };
-}
+// Note: Avoid patching global fetch to prevent interfering with Next.js runtime
 
 // Export the type from wallet-adapter-core for use in other files
 export { InputTransactionData };
@@ -40,6 +33,25 @@ export interface MarketInfo {
     final_price: string;
     fee_withdrawn: boolean;
     created_at: string;
+    // Multi-outcome market fields
+    market_type?: {
+        is_binary: boolean;
+    };
+    price_ranges?: Array<{
+        min_price: number | string;
+        max_price: number | string;
+        outcome_name: string;
+    }>;
+    outcomes?: Array<{
+      outcome_index: number;
+      price_range: {
+        min_price: number | string;
+        max_price: number | string;
+        outcome_name: string;
+      };
+    }>;
+    outcome_amounts?: number[];
+    bonus_injected?: number;
     creator: string;
     symbol?: string; // Added for pair_name mapping
 }
@@ -47,6 +59,15 @@ export interface MarketInfo {
 export interface DeployMarketParams {
   pairName: string;
   strikePrice: number | string;
+  feePercentage: number | string;
+  biddingStartTime: number | string;
+  biddingEndTime: number | string;
+  maturityTime: number | string;
+}
+
+export interface DeployMultiOutcomeParams {
+  pairName: string; // price_feed_id hex (32 bytes)
+  priceRanges: { min: number | string; max: number | string; name?: string }[];
   feePercentage: number | string;
   biddingStartTime: number | string;
   biddingEndTime: number | string;
@@ -121,7 +142,7 @@ export async function estimateDeployMarketGas(
     ];
     console.log('[estimateDeployMarketGas] arguments:', args);
     const payload = {
-      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
+      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::create_market`,
       type_arguments: [],
       arguments: args
     };
@@ -240,7 +261,7 @@ export async function deployMarketWithGasSettings(
     const gasEstimate = await estimateDeployMarketGas(params, gasSpeed);
     const transaction: InputTransactionData = {
       data: {
-        function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
+        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::create_market`,
         typeArguments: [],
         functionArguments: [
           priceFeedIdBytes,
@@ -298,7 +319,7 @@ export async function deployMarket(
     if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
     const transaction: InputTransactionData = {
       data: {
-        function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::create_market`,
+        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::create_market`,
         typeArguments: [],
         functionArguments: [
           priceFeedIdBytes,
@@ -323,12 +344,85 @@ export async function deployMarket(
   }
 }
 
+/**
+ * Deploy a multi-outcome market (market_core::create_multi_outcome_market)
+ */
+export async function deployMultiOutcomeMarket(
+  signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
+  params: DeployMultiOutcomeParams
+): Promise<string> {
+  const {
+    pairName,
+    priceRanges,
+    feePercentage,
+    biddingStartTime,
+    biddingEndTime,
+    maturityTime,
+  } = params;
+
+  // price_feed_id to bytes (32)
+  const hex = pairName.startsWith('0x') ? pairName.slice(2) : pairName;
+  if (hex.length !== 64) throw new Error('price_feed_id must be 64 hex chars (32 bytes)');
+  const priceFeedIdBytes = Array.from(Buffer.from(hex, 'hex'));
+  if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
+
+  // Flatten ranges to [min0,max0,min1,max1,...] for entry function vector<u64>
+  const rangesFlat: string[] = [];
+  for (const r of priceRanges) {
+    const min = typeof r.min === 'string' ? r.min : String(r.min);
+    const max = typeof r.max === 'string' ? r.max : String(r.max);
+    rangesFlat.push(min, max);
+  }
+
+  // Move expects vector<PriceRange> where PriceRange has fields (min_price, max_price, outcome_name: String)
+  // Using wallet-adapter, we pass as functionArguments: [vector<u8>, vector<PriceRange>, fee, times]
+  const transaction: InputTransactionData = {
+    data: {
+      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::create_multi_outcome_market`,
+      typeArguments: [],
+      functionArguments: [
+        priceFeedIdBytes,
+        rangesFlat,
+        typeof feePercentage === 'string' ? feePercentage : String(feePercentage),
+        typeof biddingStartTime === 'string' ? biddingStartTime : String(biddingStartTime),
+        typeof biddingEndTime === 'string' ? biddingEndTime : String(biddingEndTime),
+        typeof maturityTime === 'string' ? maturityTime : String(maturityTime)
+      ]
+    }
+  };
+
+  const response = await signAndSubmitTransaction(transaction);
+  // Handle multiple wallet return shapes
+  let txHash: string | null = null;
+  if (typeof response === 'string') {
+    txHash = response;
+  } else if (response && typeof response === 'object') {
+    const anyResp = response as Record<string, unknown>;
+    if (typeof anyResp.hash === 'string') txHash = anyResp.hash as string;
+    else if (typeof anyResp.txHash === 'string') txHash = anyResp.txHash as string;
+    else if (typeof anyResp.transactionHash === 'string') txHash = anyResp.transactionHash as string;
+    else if (typeof anyResp.pendingTransactionHash === 'string') txHash = anyResp.pendingTransactionHash as string;
+    else if (anyResp.result && typeof (anyResp.result as Record<string, unknown>)?.hash === 'string') {
+      txHash = (anyResp.result as Record<string, unknown>).hash as string;
+    }
+  }
+  
+  if (txHash) {
+    // Dispatch market list refresh event for new market creation
+    dispatchMarketListRefresh();
+    return txHash;
+  }
+  
+  console.warn('[deployMultiOutcomeMarket] Unexpected wallet response:', response);
+  throw new Error('Transaction did not return a hash');
+}
+
 export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
   if (!owner || typeof owner !== 'string' || !owner.startsWith('0x')) return [];
   try {
     const aptos = getAptosClient();
     const payload = {
-      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::get_markets_by_owner` as `${string}::${string}::${string}`,
+      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_markets_by_owner` as `${string}::${string}::${string}`,
       type_arguments: [],
       arguments: [owner],
     };
@@ -355,6 +449,17 @@ export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
 
 const marketDetailsCache: Record<string, { data: MarketInfo | null, ts: number, rateLimitedUntil?: number }> = {};
 
+// Function to clear market details cache
+export function clearMarketDetailsCache(marketAddress?: string): void {
+  if (marketAddress) {
+    delete marketDetailsCache[marketAddress];
+    console.log(`[clearMarketDetailsCache] Cleared cache for market: ${marketAddress}`);
+  } else {
+    Object.keys(marketDetailsCache).forEach(key => delete marketDetailsCache[key]);
+    console.log('[clearMarketDetailsCache] Cleared all market cache');
+  }
+}
+
 export async function getMarketDetails(marketObjectAddress: string, forceRefresh: boolean = false): Promise<MarketInfo | null> {
   const now = Date.now();
   if (!forceRefresh && marketDetailsCache[marketObjectAddress] && now - marketDetailsCache[marketObjectAddress].ts < 3 * 60 * 1000) {
@@ -366,8 +471,10 @@ export async function getMarketDetails(marketObjectAddress: string, forceRefresh
     return marketDetailsCache[marketObjectAddress].data || null;
   }
   try {
-    const resourceType = `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::Market` as `${string}::${string}::${string}`;
-    const baseUrl = 'https://fullnode.mainnet.aptoslabs.com/v1/accounts';
+    const aptos = getAptosClient();
+    const resourceType = `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::Market` as `${string}::${string}::${string}`;
+    // Fix URL duplication: aptos.config.fullnode already includes /v1
+    const baseUrl = `${aptos.config.fullnode}/accounts`;
     const url = `${baseUrl}/${marketObjectAddress}/resource/${resourceType}`;
     let retryCount = 0;
     while (retryCount < 3) {
@@ -407,7 +514,7 @@ export async function getMarketDetails(marketObjectAddress: string, forceRefresh
           throw new Error(`Market resource not found for address: ${marketObjectAddress}`);
         }
         const market = resource.data;
-        const { pair, symbol } = getPairAndSymbolFromPriceFeedId(market.price_feed_id || '');
+        const { pair, symbol } = getPairAndSymbolFromPriceFeedId((market.price_feed_id as string) || '');
         const result: MarketInfo = {
           market_address: marketObjectAddress,
           owner: market.creator || '',
@@ -431,7 +538,73 @@ export async function getMarketDetails(marketObjectAddress: string, forceRefresh
           fee_withdrawn: !!market.fee_withdrawn,
           created_at: market.created_at ? String(market.created_at) : '0',
           price_feed_id: market.price_feed_id || '',
+          // Multi-outcome market fields
+          market_type: market.market_type || { is_binary: true },
+          price_ranges: market.price_ranges ? 
+            market.price_ranges.map((pr: Record<string, unknown>) => ({
+              min_price: pr.min_price,
+              max_price: pr.max_price,
+              outcome_name: pr.outcome_name || ''
+            })) : [],
+          outcomes: market.outcomes ? 
+            market.outcomes.map((outcome: Record<string, unknown>) => ({
+              outcome_index: outcome.outcome_index,
+              price_range: {
+                min_price: (outcome.price_range as { min_price?: unknown })?.min_price,
+                max_price: (outcome.price_range as { max_price?: unknown })?.max_price,
+                outcome_name: (outcome.price_range as { outcome_name?: string })?.outcome_name || ''
+              }
+            })) : [],
+          outcome_amounts: market.outcome_amounts ? 
+            market.outcome_amounts.map((amount: unknown) => Number(amount) || 0) : [],
+          bonus_injected: market.bonus_injected ? Number(market.bonus_injected) : 0,
         };
+        
+        console.log('[getMarketDetails] Raw market data from blockchain:', {
+          market_address: marketObjectAddress,
+          raw_market: market,
+          market_type: market.market_type,
+          price_ranges: market.price_ranges,
+          outcomes: market.outcomes,
+          price_ranges_type: typeof market.price_ranges,
+          price_ranges_length: market.price_ranges?.length,
+          outcome_amounts: market.outcome_amounts,
+          outcome_amounts_type: typeof market.outcome_amounts,
+          outcome_amounts_length: market.outcome_amounts?.length,
+          first_price_range: market.price_ranges?.[0],
+          all_price_ranges: market.price_ranges?.map((pr: Record<string, unknown>, i: number) => ({
+            index: i,
+            min_price: pr.min_price,
+            max_price: pr.max_price,
+            outcome_name: pr.outcome_name,
+            min_price_type: typeof pr.min_price,
+            max_price_type: typeof pr.max_price
+          })),
+          // Debug timing fields
+          timing_fields: {
+            bidding_start_time: market.bidding_start_time,
+            bidding_end_time: market.bidding_end_time,
+            maturity_time: market.maturity_time,
+            created_at: market.created_at
+          }
+        });
+        
+        console.log('[getMarketDetails] Processed market data:', {
+          market_address: marketObjectAddress,
+          market_type: result.market_type,
+          is_multi_outcome: result.market_type && !result.market_type.is_binary,
+          outcomes_count: result.outcomes?.length || 0,
+          price_ranges_count: result.price_ranges?.length || 0,
+          outcomes: result.outcomes,
+          price_ranges: result.price_ranges,
+          // Debug processed timing fields
+          processed_timing: {
+            bidding_start_time: result.bidding_start_time,
+            bidding_end_time: result.bidding_end_time,
+            maturity_time: result.maturity_time,
+            created_at: result.created_at
+          }
+        });
         marketDetailsCache[marketObjectAddress] = { data: result, ts: Date.now() };
         return result;
       } catch (fetchError) {
@@ -462,14 +635,19 @@ export async function bid(
     // Use standard entry function payload; coin transfer is handled by Move contract
     const transaction: InputTransactionData = {
         data: {
-            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::bid`,
+            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::bid`,
             typeArguments: [],
             functionArguments: [marketAddress, prediction, amountInOctas.toString(), timestampBid.toString()],
         }
     };
     const response = await signAndSubmitTransaction(transaction);
     if (response && typeof response === 'object' && 'hash' in response) {
-      return (response as { hash: string }).hash;
+      const txHash = (response as { hash: string }).hash;
+      
+      // Dispatch market update event
+      dispatchMarketUpdate(marketAddress, 'bid', { txHash, amount, prediction });
+      
+      return txHash;
     }
     throw new Error('Transaction did not return a hash');
 }
@@ -480,7 +658,7 @@ export async function claim(
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
-            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::claim`,
+            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::claim`,
             typeArguments: [],
             functionArguments: [marketAddress], 
         }
@@ -488,7 +666,37 @@ export async function claim(
     const response = await signAndSubmitTransaction(transaction);
     // If response is unknown, try to access hash safely
     if (response && typeof response === 'object' && 'hash' in response) {
-      return (response as { hash: string }).hash;
+      const txHash = (response as { hash: string }).hash;
+      
+      // Dispatch market update event
+      dispatchMarketUpdate(marketAddress, 'claim', { txHash });
+      
+      return txHash;
+    }
+    throw new Error('Transaction did not return a hash');
+}
+
+// Claim for multi-outcome market
+export async function claimMultiOutcome(
+    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
+    marketAddress: string
+): Promise<string> {
+    const transaction: InputTransactionData = {
+        data: {
+            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::claim_multi_outcome`,
+            typeArguments: [],
+            functionArguments: [marketAddress], 
+        }
+    };
+    const response = await signAndSubmitTransaction(transaction);
+    // If response is unknown, try to access hash safely
+    if (response && typeof response === 'object' && 'hash' in response) {
+      const txHash = (response as { hash: string }).hash;
+      
+      // Dispatch market update event
+      dispatchMarketUpdate(marketAddress, 'claim', { txHash });
+      
+      return txHash;
     }
     throw new Error('Transaction did not return a hash');
 }
@@ -503,20 +711,117 @@ export async function claim(
 export async function resolveMarket(
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
     marketAddress: string,
-    pythPriceUpdate: number[][]
+    pythPriceUpdate: (number[] | Uint8Array)[]
 ): Promise<string> {
+    // Validate inputs
+    if (!signAndSubmitTransaction) {
+        throw new Error('signAndSubmitTransaction function is required');
+    }
+    if (!marketAddress || typeof marketAddress !== 'string') {
+        throw new Error('Valid market address is required');
+    }
+    if (!pythPriceUpdate || !Array.isArray(pythPriceUpdate) || pythPriceUpdate.length === 0) {
+        throw new Error('Valid Pyth price update data is required');
+    }
+
+    // Optional validation: ensure the VAA corresponds to market's price_feed_id
+    try {
+      const network = getNetworkInfo();
+      console.log('[resolveMarket] Using network for Pyth IDs:', network.name);
+    } catch (error) {
+      console.warn('[resolveMarket] Could not get network info:', error);
+    }
+
+    // Normalize payload strictly to vector<vector<u8>> expected by Move:
+    // Each inner element MUST be a byte array where every value is 0..255 and numeric
+    const normalizedUpdates: number[][] = pythPriceUpdate.map((chunk, chunkIdx) => {
+      if (!chunk || chunk.length === 0) {
+        throw new Error(`Empty VAA chunk at index ${chunkIdx}`);
+      }
+
+      if (chunk instanceof Uint8Array) {
+        return Array.from(chunk);
+      }
+      
+      // Handle both number[] and string[] arrays
+      const normalizedChunk = (chunk as (number | string)[]).map((v: unknown, byteIdx) => {
+        const num = Number(v);
+        if (isNaN(num) || num < 0 || num > 255) {
+          throw new Error(`Invalid byte value at chunk[${chunkIdx}][${byteIdx}]: ${v}. Must be 0-255.`);
+        }
+        return num;
+      });
+      
+      console.log(`[resolveMarket] Normalized chunk[${chunkIdx}]:`, {
+        originalLength: chunk.length,
+        normalizedLength: normalizedChunk.length,
+        firstBytes: normalizedChunk.slice(0, 8),
+        lastBytes: normalizedChunk.slice(-8)
+      });
+      
+      return normalizedChunk;
+    });
     const transaction: InputTransactionData = {
         data: {
-            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::resolve_market`,
+            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::resolve_market`,
             typeArguments: [],
-            functionArguments: [marketAddress, pythPriceUpdate],
+            functionArguments: [marketAddress, normalizedUpdates],
         }
     };
-    const response = await signAndSubmitTransaction(transaction);
-    if (response && typeof response === 'object' && 'hash' in response) {
-      return (response as { hash: string }).hash;
+
+    try {
+      console.log('[resolveMarket] Submitting transaction with normalized updates:', {
+        marketAddress,
+        updateChunks: normalizedUpdates.length,
+        totalBytes: normalizedUpdates.reduce((sum, chunk) => sum + chunk.length, 0),
+        firstChunkLength: normalizedUpdates[0]?.length,
+        firstChunkFirst8: normalizedUpdates[0]?.slice(0, 8),
+        firstChunkLast8: normalizedUpdates[0]?.slice(-8)
+      });
+
+      // Log transaction details for debugging
+      console.log('[resolveMarket] Transaction details:', {
+        function: 'resolve_market',
+        typeArguments: transaction.data.typeArguments,
+        functionArguments: [
+          transaction.data.functionArguments[0], // market address
+          `[${normalizedUpdates.length} chunks with ${normalizedUpdates.reduce((sum, chunk) => sum + chunk.length, 0)} total bytes]`
+        ]
+      });
+
+      const response = await signAndSubmitTransaction(transaction);
+      
+      if (response && typeof response === 'object' && 'hash' in response) {
+        console.log('[resolveMarket] Transaction successful, hash:', (response as { hash: string }).hash);
+        return (response as { hash: string }).hash;
+      }
+      
+      throw new Error('Transaction did not return a valid hash');
+    } catch (error) {
+      console.error('[resolveMarket] Transaction failed:', error);
+      
+      // Enhanced error logging
+      if (error instanceof Error) {
+        console.error('[resolveMarket] Error details:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        });
+        
+        // Check for specific error patterns
+        if (error.message.includes('Simulation error')) {
+          console.error('[resolveMarket] Simulation error detected - this usually means the transaction would fail on-chain');
+        }
+        if (error.message.includes('Generic error')) {
+          console.error('[resolveMarket] Generic error detected - this could be due to VAA format or contract issues');
+        }
+        if (error.message.includes('E_WRONG_VERSION')) {
+          console.error('[resolveMarket] VAA version error - the VAA data format is not supported');
+        }
+      }
+      
+      throw new Error(`Market resolution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-    throw new Error('Transaction did not return a hash');
 }
 
 export async function withdrawFee(
@@ -525,7 +830,7 @@ export async function withdrawFee(
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
-            function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::withdraw_fee`,
+            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::withdraw_fee`,
             typeArguments: [],
             functionArguments: [marketAddress], 
         }
@@ -542,7 +847,7 @@ export async function getAllMarkets(): Promise<MarketInfo[]> {
   try {
     const aptos = getAptosClient();
     const payload = {
-      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::get_all_markets` as `${string}::${string}::${string}`,
+      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_all_markets` as `${string}::${string}::${string}`,
       type_arguments: [],
       arguments: [],
     };
@@ -577,7 +882,7 @@ export async function getUserBid(userAddress: string, marketAddress: string): Pr
   const aptos = getAptosClient();
   const result = await aptos.view({
     payload: {
-      function: `${BINARY_OPTION_MARKET_MODULE_ADDRESS}::binary_option_market::get_user_position`,
+      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_position`,
       typeArguments: [],
       functionArguments: [userAddress, marketAddress],
     }
@@ -621,6 +926,476 @@ export async function getUserBid(userAddress: string, marketAddress: string): Pr
   // fallback
   console.warn('[getUserBid] Fallback: No result or unexpected format', { result });
   return ['0', '0', false];
+}
+
+// Get user position for multi-outcome market
+export async function getUserMultiOutcomePosition(userAddress: string, marketAddress: string): Promise<number[]> {
+  console.log('[getUserMultiOutcomePosition] Called with:', { 
+    userAddress, 
+    marketAddress,
+    moduleAddress: market_core_MODULE_ADDRESS,
+    functionName: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_multi_outcome_position`
+  });
+  
+  // Add delay to prevent rate limiting
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Debug: Check if this is the same address that bet
+  console.log('[getUserMultiOutcomePosition] Address comparison:', {
+    currentUserAddress: userAddress,
+    isCurrentUser: userAddress === '0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d',
+    addressLength: userAddress.length,
+    addressPrefix: userAddress.slice(0, 10) + '...' + userAddress.slice(-10),
+    addressValidation: {
+      startsWith0x: userAddress.startsWith('0x'),
+      hasCorrectLength: userAddress.length === 66, // 0x + 64 hex chars
+      isHex: /^0x[0-9a-fA-F]+$/.test(userAddress)
+    }
+  });
+  
+  const aptos = getAptosClient();
+  
+  try {
+    const result = await aptos.view({
+      payload: {
+        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_multi_outcome_position`,
+        typeArguments: [],
+        functionArguments: [userAddress, marketAddress],
+      }
+    });
+    console.log('[getUserMultiOutcomePosition] API raw result:', result);
+    console.log('[getUserMultiOutcomePosition] Result type:', typeof result);
+    console.log('[getUserMultiOutcomePosition] Is array:', Array.isArray(result));
+    console.log('[getUserMultiOutcomePosition] Result length:', Array.isArray(result) ? result.length : 'N/A');
+    
+    // Debug: Check if result is empty vector
+    if (Array.isArray(result) && result.length === 0) {
+      console.log('[getUserMultiOutcomePosition] WARNING: API returned empty array - user may not have bet or address mismatch');
+      console.log('[getUserMultiOutcomePosition] Debugging empty result:', {
+        userAddress,
+        marketAddress,
+        moduleAddress: market_core_MODULE_ADDRESS,
+        functionCall: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_multi_outcome_position`,
+        possibleIssues: [
+          'User address format incorrect',
+          'Market address incorrect', 
+          'User has not bet in this market',
+          'Contract function not working properly'
+        ]
+      });
+    }
+
+  // Handle wrapped response format first (most common)
+  if (result && typeof result === 'object' && 'result' in result) {
+    const resultObj = result as { result?: unknown[] };
+    console.log('[getUserMultiOutcomePosition] Wrapped result object:', resultObj);
+    if (resultObj.result && Array.isArray(resultObj.result)) {
+      const amounts = resultObj.result.map((amount: unknown) => Number(amount) || 0);
+      console.log('[getUserMultiOutcomePosition] Parsed amounts (wrapped):', amounts);
+      console.log('[getUserMultiOutcomePosition] Wrapped amounts length:', amounts.length);
+      
+      // Apply same normalization logic for wrapped response
+      if (amounts.length === 0 || amounts.length === 1) {
+        console.log('[getUserMultiOutcomePosition] Wrapped API returned insufficient data, fetching market info...');
+        try {
+          const marketDetails = await getMarketDetails(marketAddress);
+          const expectedLength = marketDetails?.price_ranges?.length || 3;
+          console.log('[getUserMultiOutcomePosition] Expected length from market (wrapped):', expectedLength);
+          
+          const normalizedAmounts = Array.from({ length: expectedLength }, (_, index) => 
+            amounts[index] || 0
+          );
+          console.log('[getUserMultiOutcomePosition] Normalized amounts (wrapped):', normalizedAmounts);
+          return normalizedAmounts;
+        } catch (error) {
+          console.warn('[getUserMultiOutcomePosition] Failed to get market details (wrapped), using default length 3:', error);
+          const fallbackAmounts = Array.from({ length: 3 }, (_, index) => amounts[index] || 0);
+          console.log('[getUserMultiOutcomePosition] Fallback amounts (wrapped):', fallbackAmounts);
+          return fallbackAmounts;
+        }
+      }
+      
+      return amounts;
+    }
+  }
+
+  // Handle direct array response format
+  if (Array.isArray(result)) {
+    // Check if it's a nested array (like [["10000000", "50000000", "30000000"]])
+    if (result.length === 1 && Array.isArray(result[0])) {
+      const nestedArray = result[0];
+      const amounts = nestedArray.map((amount: unknown) => Number(amount) || 0);
+      console.log('[getUserMultiOutcomePosition] Parsed amounts (nested array):', amounts);
+      console.log('[getUserMultiOutcomePosition] Nested amounts length:', amounts.length);
+      
+      // Return the amounts directly since we have the correct data
+      if (amounts.length > 0) {
+        return amounts;
+      }
+    }
+    
+    // Handle direct array format
+    const amounts = result.map((amount: unknown) => Number(amount) || 0);
+    console.log('[getUserMultiOutcomePosition] Parsed amounts (direct array):', amounts);
+    console.log('[getUserMultiOutcomePosition] Amounts length:', amounts.length);
+    
+    // If API returns empty array or single element, we need to get market info to determine correct length
+    if (amounts.length === 0 || amounts.length === 1) {
+      console.log('[getUserMultiOutcomePosition] API returned insufficient data, fetching market info...');
+      try {
+        // Get market details to determine number of outcomes
+        const marketDetails = await getMarketDetails(marketAddress);
+        const expectedLength = marketDetails?.price_ranges?.length || 3;
+        console.log('[getUserMultiOutcomePosition] Expected length from market:', expectedLength);
+        
+        // Create array with correct length, filling with 0s
+        const normalizedAmounts = Array.from({ length: expectedLength }, (_, index) => 
+          amounts[index] || 0
+        );
+        console.log('[getUserMultiOutcomePosition] Normalized amounts:', normalizedAmounts);
+        return normalizedAmounts;
+      } catch (error) {
+        console.warn('[getUserMultiOutcomePosition] Failed to get market details, using default length 3:', error);
+        // Fallback to length 3 if we can't get market info
+        const fallbackAmounts = Array.from({ length: 3 }, (_, index) => amounts[index] || 0);
+        console.log('[getUserMultiOutcomePosition] Fallback amounts:', fallbackAmounts);
+        return fallbackAmounts;
+      }
+    }
+    
+    return amounts;
+  }
+
+
+  // Handle single value response (might be the issue)
+  if (typeof result === 'number' || typeof result === 'string') {
+    const singleAmount = Number(result) || 0;
+    console.log('[getUserMultiOutcomePosition] Single value response:', singleAmount);
+    return [singleAmount];
+  }
+
+  console.warn('[getUserMultiOutcomePosition] Fallback: No result or unexpected format', { 
+    result, 
+    resultType: typeof result,
+    isArray: Array.isArray(result),
+    keys: result && typeof result === 'object' ? Object.keys(result) : 'N/A'
+  });
+  
+  // Even in fallback case, try to return array with correct length
+  try {
+    const marketDetails = await getMarketDetails(marketAddress);
+    const expectedLength = marketDetails?.price_ranges?.length || 3;
+    console.log('[getUserMultiOutcomePosition] Fallback: Expected length from market:', expectedLength);
+    const fallbackAmounts = Array.from({ length: expectedLength }, () => 0);
+    console.log('[getUserMultiOutcomePosition] Fallback: Returning zero array:', fallbackAmounts);
+    return fallbackAmounts;
+  } catch (error) {
+    console.warn('[getUserMultiOutcomePosition] Fallback: Failed to get market details, returning default [0,0,0]:', error);
+    return [0, 0, 0];
+  }
+  } catch (error) {
+    console.error('[getUserMultiOutcomePosition] API call failed:', error);
+    
+    // Handle rate limit specifically
+    if (error instanceof Error && error.message.includes('429')) {
+      console.warn('[getUserMultiOutcomePosition] Rate limit exceeded, returning empty array');
+      return [];
+    }
+    
+    // For other errors, return empty array
+    return [];
+  }
+}
+
+// Function to check all addresses that have bet in the market
+export async function getAllBettingAddresses(marketAddress: string): Promise<void> {
+  console.log('[getAllBettingAddresses] Checking all betting addresses for market:', marketAddress);
+  
+  try {
+    const aptos = getAptosClient();
+    
+    // Get market details to see total amounts
+    const marketDetails = await getMarketDetails(marketAddress);
+    console.log('[getAllBettingAddresses] Market details:', {
+      marketAddress,
+      outcomeAmounts: marketDetails?.outcome_amounts,
+      totalPool: marketDetails?.outcome_amounts?.reduce((sum, amount) => sum + amount, 0),
+      priceRanges: marketDetails?.price_ranges?.length
+    });
+    
+    // Try to get all bids by checking the market resource
+    const result = await aptos.view({
+      payload: {
+        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_market_info`,
+        typeArguments: [],
+        functionArguments: [marketAddress],
+      }
+    });
+    
+    console.log('[getAllBettingAddresses] Market info result:', result);
+    
+    // Try to get market details directly from the market resource
+    try {
+      const marketResource = await aptos.getAccountResource({
+        accountAddress: marketAddress,
+        resourceType: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::Market`
+      });
+      console.log('[getAllBettingAddresses] Market resource:', marketResource);
+      
+      // Check if we can see the bids table
+      if (marketResource.data && marketResource.data.bids) {
+        console.log('[getAllBettingAddresses] Bids table found:', marketResource.data.bids);
+      } else {
+        console.log('[getAllBettingAddresses] No bids table found in market resource');
+      }
+    } catch (marketResourceError) {
+      console.log('[getAllBettingAddresses] Market resource error:', marketResourceError);
+    }
+    
+    // Try to get all markets to see if we can find this market
+    try {
+      const allMarketsResult = await aptos.view({
+        payload: {
+          function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_all_markets`,
+          typeArguments: [],
+          functionArguments: [],
+        }
+      });
+      console.log('[getAllBettingAddresses] All markets result:', allMarketsResult);
+    } catch (allMarketsError) {
+      console.log('[getAllBettingAddresses] All markets call failed:', allMarketsError);
+    }
+    
+    // Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[getAllBettingAddresses] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[getAllBettingAddresses] Market details error:', marketDetailsError);
+    }
+    
+    // Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[getAllBettingAddresses] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[getAllBettingAddresses] Market details error:', marketDetailsError);
+    }
+    
+  } catch (error) {
+    console.error('[getAllBettingAddresses] Error:', error);
+  }
+}
+
+// Test function to debug API call
+export async function testGetUserMultiOutcomePosition(userAddress: string, marketAddress: string): Promise<void> {
+  console.log('[TEST] Testing getUserMultiOutcomePosition with:', { userAddress, marketAddress });
+  
+  try {
+    const aptos = getAptosClient();
+    
+    // Test 1: Check if user address is valid
+    console.log('[TEST] User address validation:', {
+      userAddress,
+      isValidAddress: userAddress.startsWith('0x'),
+      length: userAddress.length
+    });
+    
+    // Test 2: Check if market address is valid
+    console.log('[TEST] Market address validation:', {
+      marketAddress,
+      isValidAddress: marketAddress.startsWith('0x'),
+      length: marketAddress.length
+    });
+    
+    // Test 3: Make the API call
+    console.log('[TEST] Making API call...');
+    const result = await aptos.view({
+      payload: {
+        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_multi_outcome_position`,
+        typeArguments: [],
+        functionArguments: [userAddress, marketAddress],
+      }
+    });
+    
+    console.log('[TEST] API call result:', {
+      result,
+      resultType: typeof result,
+      isArray: Array.isArray(result),
+      length: Array.isArray(result) ? result.length : 'N/A'
+    });
+    
+    // Test 4: Try to get market resource directly
+    try {
+      const marketResource = await aptos.getAccountResource({
+        accountAddress: marketAddress,
+        resourceType: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::Market`
+      });
+      console.log('[TEST] Market resource:', marketResource);
+      
+      // Check if we can see the bids table
+      if (marketResource.data && marketResource.data.bids) {
+        console.log('[TEST] Bids table found:', marketResource.data.bids);
+      } else {
+        console.log('[TEST] No bids table found in market resource');
+      }
+    } catch (marketResourceError) {
+      console.log('[TEST] Market resource error:', marketResourceError);
+    }
+    
+    // Test 5: Try to get market info using get_market_info function
+    try {
+      const marketInfoResult = await aptos.view({
+        payload: {
+          function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_market_info`,
+          typeArguments: [],
+          functionArguments: [marketAddress],
+        }
+      });
+      console.log('[TEST] Market info result:', marketInfoResult);
+    } catch (marketInfoError) {
+      console.log('[TEST] Market info error:', marketInfoError);
+    }
+    
+    // Test 6: Try to get all markets to see if we can find this market
+    try {
+      const allMarketsResult = await aptos.view({
+        payload: {
+          function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_all_markets`,
+          typeArguments: [],
+          functionArguments: [],
+        }
+      });
+      console.log('[TEST] All markets result:', allMarketsResult);
+    } catch (allMarketsError) {
+      console.log('[TEST] All markets error:', allMarketsError);
+    }
+    
+    // Test 7: Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[TEST] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[TEST] Market details error:', marketDetailsError);
+    }
+    
+    // Test 8: Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[TEST] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[TEST] Market details error:', marketDetailsError);
+    }
+    
+    // Test 9: Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[TEST] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[TEST] Market details error:', marketDetailsError);
+    }
+    
+    // Test 10: Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[TEST] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[TEST] Market details error:', marketDetailsError);
+    }
+    
+    // Test 11: Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[TEST] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[TEST] Market details error:', marketDetailsError);
+    }
+    
+    // Test 12: Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[TEST] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[TEST] Market details error:', marketDetailsError);
+    }
+    
+    // Test 13: Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[TEST] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[TEST] Market details error:', marketDetailsError);
+    }
+    
+    // Test 14: Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[TEST] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[TEST] Market details error:', marketDetailsError);
+    }
+    
+    // Test 15: Try to get market details using getMarketDetails function
+    try {
+      const marketDetails = await getMarketDetails(marketAddress);
+      console.log('[TEST] Market details from getMarketDetails:', marketDetails);
+    } catch (marketDetailsError) {
+      console.log('[TEST] Market details error:', marketDetailsError);
+    }
+    
+    // Test 16: Check if user address is correct
+    console.log('[TEST] User address validation:', {
+      userAddress,
+      isValidAddress: userAddress.startsWith('0x'),
+      length: userAddress.length,
+      expectedLength: 66, // 0x + 64 hex chars
+      isCorrectLength: userAddress.length === 66,
+      isHex: /^0x[0-9a-fA-F]+$/.test(userAddress)
+    });
+    
+  } catch (error) {
+    console.error('[TEST] API call failed:', error);
+  }
+}
+
+// Bid on multi-outcome market
+export async function bidMultiOutcome(
+  signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
+  marketAddress: string,
+  outcomeIndex: number,
+  amount: number,
+  timestampBid: number
+): Promise<string> {
+  const transaction: InputTransactionData = {
+    data: {
+      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::bid_multi_outcome`,
+      typeArguments: [],
+      functionArguments: [
+        marketAddress,
+        outcomeIndex,
+        Math.floor(amount * 1e8), // Convert APT to octas
+        timestampBid
+      ]
+    }
+  };
+
+  const response = await signAndSubmitTransaction(transaction);
+  
+  // Handle multiple wallet return shapes
+  let txHash: string | null = null;
+  if (typeof response === 'string') {
+    txHash = response;
+  } else if (response && typeof response === 'object') {
+    const responseObj = response as Record<string, unknown>;
+    txHash = (responseObj.hash as string) || (responseObj.transactionHash as string) || null;
+  }
+  
+  if (!txHash) {
+    throw new Error('Failed to get transaction hash from wallet response');
+  }
+  
+  console.log('[bidMultiOutcome] Transaction submitted:', txHash);
+  return txHash;
 } 
 
 export async function getMarketCount(): Promise<number> {

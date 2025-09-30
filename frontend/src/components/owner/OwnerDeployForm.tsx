@@ -1,9 +1,11 @@
 import React from 'react';
 import {
-  Box, VStack, Heading, Text, Select, InputGroup, Input, InputRightAddon, HStack, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip
+  Box, VStack, Heading, Text, Select, InputGroup, Input, InputRightAddon, HStack, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, Switch
 } from '@chakra-ui/react';
 import { FaInfoCircle } from 'react-icons/fa';
 import { TradingPairInfo } from '../../config/tradingPairs';
+
+type RangeKind = 'lt' | 'range' | 'gt';
 
 interface OwnerDeployFormProps {
   availablePairs: TradingPairInfo[];
@@ -33,6 +35,13 @@ interface OwnerDeployFormProps {
   isFinishing: boolean;
   showFeeTooltip: boolean;
   setShowFeeTooltip: (v: boolean) => void;
+  // multi-outcome controls
+  isMultiOutcome?: boolean;
+  setIsMultiOutcome?: (v: boolean) => void;
+  ranges?: { min: string; max: string; name: string; kind: RangeKind }[];
+  onChangeRange?: (idx: number, field: 'min'|'max'|'name'|'kind', value: string) => void;
+  onAddRange?: () => void;
+  onRemoveRange?: (idx: number) => void;
 }
 
 const OwnerDeployForm: React.FC<OwnerDeployFormProps> = ({
@@ -41,7 +50,9 @@ const OwnerDeployForm: React.FC<OwnerDeployFormProps> = ({
   biddingEndDate, setBiddingEndDate, biddingEndTime, setBiddingEndTime,
   maturityDate, setMaturityDate, maturityTime, setMaturityTime,
   feePercentage, handleFeeInputChange, handleFeeSliderChange,
- showFeeTooltip, setShowFeeTooltip
+  showFeeTooltip, setShowFeeTooltip,
+  isMultiOutcome = false, setIsMultiOutcome = () => {},
+  ranges = [], onChangeRange = () => {}, onAddRange = () => {}, onRemoveRange = () => {}
 }) => {
   return (
     <VStack spacing={5} align="stretch">
@@ -64,14 +75,67 @@ const OwnerDeployForm: React.FC<OwnerDeployFormProps> = ({
           ))}
         </Select>
       </Box>
-      {/* Strike Price */}
+      {/* Market Mode */}
       <Box>
-        <Text fontSize="lg" fontWeight="bold" mb={2} color="#E0E0E0">Strike Price</Text>
-        <InputGroup>
-          <Input placeholder="Enter strike price" value={strikePrice} onChange={e => { if (/^\d*\.?\d*$/.test(e.target.value)) setStrikePrice(e.target.value); }} bg="#23262f" border="1px solid #35373f" color="white" borderRadius="xl" h="48px" fontSize="lg" _placeholder={{ color: '#888' }} _hover={{ borderColor: '#4F8CFF' }} _focus={{ borderColor: '#4F8CFF', boxShadow: '0 0 0 1px #4F8CFF' }} />
-          <InputRightAddon h="48px" bg="transparent" borderColor="#35373f" color="#B0B3B8" fontSize="lg">$</InputRightAddon>
-        </InputGroup>
+        <Text fontSize="lg" fontWeight="bold" mb={2} color="#E0E0E0">Market Mode</Text>
+        <HStack spacing={4}>
+          <Text>Binary</Text>
+          <Switch isChecked={isMultiOutcome} onChange={(e) => setIsMultiOutcome(e.target.checked)} />
+          <Text>Multi-outcome</Text>
+        </HStack>
       </Box>
+      {/* Strike Price (binary only) */}
+      {!isMultiOutcome && (
+        <Box>
+          <Text fontSize="lg" fontWeight="bold" mb={2} color="#E0E0E0">Strike Price</Text>
+          <InputGroup>
+            <Input placeholder="Enter strike price" value={strikePrice} onChange={e => setStrikePrice(e.target.value)} bg="#23262f" border="1px solid #35373f" color="white" borderRadius="xl" h="48px" fontSize="lg" _placeholder={{ color: '#888' }} _hover={{ borderColor: '#4F8CFF' }} _focus={{ borderColor: '#4F8CFF', boxShadow: '0 0 0 1px #4F8CFF' }} />
+            <InputRightAddon h="48px" bg="transparent" borderColor="#35373f" color="#B0B3B8" fontSize="lg">$</InputRightAddon>
+          </InputGroup>
+        </Box>
+      )}
+      {/* Multi-outcome ranges (only visible when isMultiOutcome) */}
+      {isMultiOutcome && (
+        <Box>
+          <Text fontSize="lg" fontWeight="bold" mb={3} color="#E0E0E0">Price Ranges (max 10 outcomes)</Text>
+          <VStack spacing={3} align="stretch">
+            {ranges.map((r, idx) => (
+              <HStack key={idx} spacing={3} align="flex-end">
+                <Box>
+                  <Text fontSize="sm" color="#A0A4AE" mb={1}>Type</Text>
+                  <Select value={r.kind} onChange={e => onChangeRange(idx, 'kind', e.target.value)} bg="#23262f" border="1px solid #35373f" color="white" borderRadius="xl" h="42px" fontSize="md">
+                    <option value="lt" style={{ backgroundColor: '#23262f', color: 'white' }}>Below threshold</option>
+                    <option value="range" style={{ backgroundColor: '#23262f', color: 'white' }}>Range (A–B)</option>
+                    <option value="gt" style={{ backgroundColor: '#23262f', color: 'white' }}>Above threshold</option>
+                  </Select>
+                </Box>
+                <Box flex={1}>
+                  <Text fontSize="sm" color="#A0A4AE" mb={1}>Min</Text>
+                  <Input value={r.min} isDisabled={r.kind==='lt'} onChange={e => onChangeRange(idx, 'min', e.target.value)} placeholder={r.kind==='lt' ? '—' : '0'} bg="#23262f" border="1px solid #35373f" color="white" borderRadius="xl" h="42px" fontSize="md" _placeholder={{ color: '#888' }} _hover={{ borderColor: '#4F8CFF' }} _focus={{ borderColor: '#4F8CFF', boxShadow: '0 0 0 1px #4F8CFF' }} />
+                </Box>
+                <Box flex={1}>
+                  <Text fontSize="sm" color="#A0A4AE" mb={1}>Max</Text>
+                  <Input value={r.max} isDisabled={r.kind==='gt'} onChange={e => onChangeRange(idx, 'max', e.target.value)} placeholder={r.kind==='gt' ? '—' : '100'} bg="#23262f" border="1px solid #35373f" color="white" borderRadius="xl" h="42px" fontSize="md" _placeholder={{ color: '#888' }} _hover={{ borderColor: '#4F8CFF' }} _focus={{ borderColor: '#4F8CFF', boxShadow: '0 0 0 1px #4F8CFF' }} />
+                </Box>
+                <Box flex={1.5}>
+                  <Text fontSize="sm" color="#A0A4AE" mb={1}>Outcome label</Text>
+                  <Input value={r.name} onChange={e => onChangeRange(idx, 'name', e.target.value)} placeholder={`e.g. "Low" / "Mid" / "High"`} bg="#23262f" border="1px solid #35373f" color="white" borderRadius="xl" h="42px" fontSize="md" _placeholder={{ color: '#888' }} _hover={{ borderColor: '#4F8CFF' }} _focus={{ borderColor: '#4F8CFF', boxShadow: '0 0 0 1px #4F8CFF' }} />
+                </Box>
+                <Box ml="auto" display="flex" alignItems="flex-end" h="100%">
+                  <button onClick={() => onRemoveRange(idx)} style={{ background:'#2b2f3a', border:'1px solid #35373f', color:'#fff', padding:'10px 14px', borderRadius:12, height:42, alignSelf:'flex-end' }}>Remove</button>
+                </Box>
+              </HStack>
+            ))}
+            <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Text fontSize="sm" color={ranges.length>=10 ? '#888' : '#A0A4AE'}>
+                {ranges.length}/10 outcomes
+              </Text>
+              <button onClick={onAddRange} disabled={ranges.length>=10} style={{ background: ranges.length>=10 ? '#3a3d46' : '#4F8CFF', color:'#fff', padding:'10px 16px', borderRadius:12 }}>+ Add Range</button>
+            </Box>
+            <Text mt={1} fontSize="sm" color="#A0A4AE">Define up to 10 outcomes. Ranges must be sorted and non‑overlapping. Labels are only for UI display; the on‑chain winner is determined strictly by the numeric boundaries.</Text>
+          </VStack>
+        </Box>
+      )}
       {/* Bidding Start Time */}
       <Box>
         <Text fontSize="lg" fontWeight="bold" mb={2} color="#E0E0E0">Bidding Start</Text>

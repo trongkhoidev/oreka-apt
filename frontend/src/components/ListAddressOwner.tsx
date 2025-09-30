@@ -203,8 +203,19 @@ const ListAddressOwner: React.FC = () => {
       const contractAddress = market.market_address || market._key || '';
       console.log('[handleAddressClick] Navigating to contractAddress:', contractAddress);
       if (!contractAddress) throw new Error('No valid contract address');
+      
+      // Check for cached market data first
+      try {
+        const cachedData = sessionStorage.getItem(`market_${contractAddress}`);
+        if (cachedData) {
+          console.log('[handleAddressClick] Using cached market data for faster navigation');
+          localStorage.setItem('contractData', cachedData);
+        }
+      } catch (err) {
+        console.warn('[handleAddressClick] Failed to access cached data', err);
+      }
+      
       // Clear any existing stored contract data
-      localStorage.removeItem('contractData');
       localStorage.removeItem('selectedContractAddress');
       // Store for fallback/UX
       localStorage.setItem('selectedContractAddress', contractAddress);

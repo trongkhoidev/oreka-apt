@@ -1,4 +1,4 @@
-module yugo::pyth_price_adapter {
+module yugo::pyth_price_adapter_v2 {
     use aptos_framework::coin::{Self};
     use aptos_framework::aptos_coin::AptosCoin;
     use pyth::pyth;

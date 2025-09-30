@@ -40,7 +40,7 @@ const MarketTimeline: React.FC<MarketTimelineProps> = ({ phase, phaseNames, mark
       if (!market?.market_address || !market?.is_resolved || !market?.final_price) return;
       try {
         // Fetch ResolveEvent list
-        const events = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${MODULE_ADDRESS}/events/${MODULE_ADDRESS}::binary_option_market::MarketRegistry/${RESOLVE_EVENT_HANDLE}`).then(res => res.json());
+        const events = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${MODULE_ADDRESS}/events/${MODULE_ADDRESS}::market_core_v2::MarketRegistry/${RESOLVE_EVENT_HANDLE}`).then(res => res.json());
         const event = events.find((e: { data: { final_price: number; }; version: string; }) => {
           return e.data && Number(e.data.final_price) === Number(market.final_price);
         });

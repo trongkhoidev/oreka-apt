@@ -5,6 +5,7 @@
     "@aptos-labs/wallet-adapter-react": "^6.1.2",
     "@martianwallet/aptos-wallet-adapter": "^0.0.5",
     "@pontem/aptos-wallet-adapter": "^0.10.1",
+    "@pythnetwork/pyth-aptos-js": "^1.4.2",
     "@react-spring/web": "^10.0.1",
     "aptos": "^1.21.0",
     "aptos-wallet-adapter": "^0.4.4",

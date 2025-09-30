@@ -24,7 +24,7 @@ const formatPool = (value: string) => {
   return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
 
-const MarketInfo: React.FC<MarketInfoProps> = ({ assetLogo, pairName, strike, maturity, pool, fee, phase, phaseNames }) => (
+const MarketInfo: React.FC<MarketInfoProps> = ({ assetLogo, pairName, maturity, pool, fee, phase, phaseNames }) => (
   <Box display="flex" alignItems="center" mb={6}>
     <HStack>
       <Image src={assetLogo} alt={pairName} width={50} height={50} style={{ marginRight: 16 }} />
@@ -33,7 +33,10 @@ const MarketInfo: React.FC<MarketInfoProps> = ({ assetLogo, pairName, strike, ma
           <HStack>
             <Text color="white" fontSize="30px">{pairName}</Text>
             <Text color="white" fontSize="25px">
-              will reach <Text as="span" color="#FEDF56">${strike}</Text> by {maturity}
+              will reach ________
+            </Text>
+            <Text color="white" fontSize="25px">
+              by {maturity}
             </Text>
           </HStack>
         </Heading>

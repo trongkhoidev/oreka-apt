@@ -1,7 +1,7 @@
 /* eslint-disable react/display-name */
 import React from 'react';
 import { Box, Text, HStack, Flex, VStack } from '@chakra-ui/react';
-import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine } from 'recharts';
+import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine, ReferenceDot } from 'recharts';
 import { format } from 'date-fns';
 
 interface PositionPoint {
@@ -30,6 +30,9 @@ const PositionChart = (props: PositionChartProps) => {
     return () => clearInterval(interval);
   }, [biddingEndTime, propCurrentTime]);
   const effectiveCurrentTime = typeof propCurrentTime === 'number' ? propCurrentTime : realtime;
+  const clampedCurrentTime = typeof biddingEndTime === 'number'
+    ? Math.min(effectiveCurrentTime, biddingEndTime)
+    : effectiveCurrentTime;
 
 
   const chartData = React.useMemo(() => {
@@ -48,12 +51,19 @@ const PositionChart = (props: PositionChartProps) => {
           unique[unique.length - 1] = sorted[i];
         }
       }
-     
+
+      // Ensure we have a point at current time while bidding is active
       let extended = unique;
       if (biddingEndTime && effectiveCurrentTime < biddingEndTime) {
         const last = unique[unique.length - 1];
-        if (last && last.time < effectiveCurrentTime) {
-          extended = [...unique, { ...last, time: effectiveCurrentTime }];
+        if (last && last.time < clampedCurrentTime) {
+          extended = [...unique, { ...last, time: clampedCurrentTime }];
+        }
+      } else if (biddingEndTime) {
+        // Ensure we have a terminal point exactly at biddingEndTime so the dot can freeze there
+        const last = unique[unique.length - 1];
+        if (last && last.time < biddingEndTime) {
+          extended = [...unique, { ...last, time: biddingEndTime }];
         }
       }
       return extended.map(d => {
@@ -66,9 +76,9 @@ const PositionChart = (props: PositionChartProps) => {
         };
       });
     }
-    
-    return [{ time: effectiveCurrentTime, longPercent: 50, shortPercent: 50, total: 0 }];
-  }, [data, effectiveCurrentTime, biddingEndTime]);
+
+    return [{ time: clampedCurrentTime, longPercent: 50, shortPercent: 50, total: 0 }];
+  }, [data, clampedCurrentTime, biddingEndTime, effectiveCurrentTime]);
 
  
   const last = chartData[chartData.length - 1];
@@ -123,27 +133,6 @@ const PositionChart = (props: PositionChartProps) => {
   };
 
 
-  // Always show dot at last point during bidding
-  const AlwaysShowDot = (color: string) => (props: { cx?: number; cy?: number; index?: number; data?: PositionPoint[] }) => {
-    const { cx, cy, index = 0, data = [] } = props;
-    if (index === data.length - 1) {
-      return (
-        <circle
-          cx={cx}
-          cy={cy}
-          r={9}
-          fill={color}
-          stroke="#fff"
-          strokeWidth={3}
-          style={{
-            filter: 'drop-shadow(0 0 8px ' + color + '88)',
-            animation: 'pulse 2s infinite'
-          }}
-        />
-      );
-    }
-    return <g />;
-  };
 
 
   const getXAxisDomain = () => {
@@ -158,15 +147,9 @@ const PositionChart = (props: PositionChartProps) => {
     return (t: number) => format(new Date(t), 'MMM d HH:mm');
   };
 
+
   return (
     <Box bg="#0A0B10" borderRadius="xl" p={2}>
-      <style jsx>{`
-        @keyframes pulse {
-          0% { opacity: 1; }
-          50% { opacity: 0.5; }
-          100% { opacity: 1; }
-        }
-      `}</style>
       {renderLegend()}
       <Box width="100%" height={height}>
         <ResponsiveContainer width="100%" height={height}>
@@ -208,7 +191,8 @@ const PositionChart = (props: PositionChartProps) => {
               dataKey="longPercent"
               stroke="#00E1D6"
               strokeWidth={3}
-              dot={AlwaysShowDot('#00E1D6')}
+              dot={false}
+              activeDot={false}
               name="Long"
               animationDuration={300}
               animationEasing="ease-out"
@@ -218,11 +202,21 @@ const PositionChart = (props: PositionChartProps) => {
               dataKey="shortPercent"
               stroke="#FF6B81"
               strokeWidth={3}
-              dot={AlwaysShowDot('#FF6B81')}
+              dot={false}
+              activeDot={false}
               name="Short"
               animationDuration={300}
               animationEasing="ease-out"
             />
+            {(() => {
+              const lastPoint = chartData[chartData.length - 1];
+              return (
+                <>
+                  <ReferenceDot x={lastPoint.time} y={lastPoint.longPercent} r={5} fill="#00E1D6" stroke="#00E1D6" isFront />
+                  <ReferenceDot x={lastPoint.time} y={lastPoint.shortPercent} r={5} fill="#FF6B81" stroke="#FF6B81" isFront />
+                </>
+              );
+            })()}
           </LineChart>
         </ResponsiveContainer>
       </Box>

@@ -1,4 +1,4 @@
-module yugo::types {
+module yugo::types_v2 {
     use std::vector;
     use std::string::String;
 

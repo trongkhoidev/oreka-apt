@@ -3,19 +3,21 @@ import {
   Box, Flex, HStack, Text, Button, Container, useToast, Spinner, Tabs, TabList, TabPanels, Tab, TabPanel
 } from '@chakra-ui/react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
-import { bid, claim, resolveMarket, getMarketDetails, getUserBid, withdrawFee } from '../services/aptosMarketService';
+import { bid, claim, claimMultiOutcome, resolveMarket, getMarketDetails, getUserBid, getUserMultiOutcomePosition, bidMultiOutcome, withdrawFee, testGetUserMultiOutcomePosition } from '../services/aptosMarketService';
 import MarketCharts from './charts/MarketCharts';
 import { PriceService } from '../services/PriceService';
 import { getAvailableTradingPairs } from '../config/tradingPairs';
 import MarketInfo from './customer/MarketInfo';
 import MarketTimeline from './customer/MarketTimeline';
 import MarketBetPanel from './customer/MarketBetPanel';
+import MultiOutcomeBetPanel from './customer/MultiOutcomeBetPanel';
 import MarketRules from './customer/MarketRules';
 import type { MarketInfo as MarketInfoType } from '../services/aptosMarketService';
 import ChartDataPrefetchService from '../services/ChartDataPrefetchService';
-import { getMarketBidEvents, buildPositionTimeline } from '../services/positionHistoryService';
+import { getMarketBidEvents, buildPositionTimeline, buildMultiOutcomePositionTimeline } from '../services/positionHistoryService';
 import { getStandardPairName } from '../config/pairMapping';
 import EventListenerService from '../services/EventListenerService';
+import { normalizePriceFeedId, fetchAndValidateVAA, base64ToBytes } from '../utils/pythUtils';
 
 enum Side { Long, Short }
 enum Phase { Pending = 0, Bidding = 1, Maturity = 2 }
@@ -39,41 +41,64 @@ const formatClaimAmount = (amount: number) => {
   return apt.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 6 });
 };
 
-// Helper: decode base64 string to byte array
-function base64ToBytes(base64: string): number[] {
-  // Standard base64 decode, do not trim any characters
-  const binary = atob(base64);
-  const arr = Array.from(binary, (char) => char.charCodeAt(0));
-  console.log('[base64ToBytes] base64 đầu:', base64.slice(0, 32), '... length:', base64.length, '-> bytes length:', arr.length, 'first bytes:', arr.slice(0, 8), 'last bytes:', arr.slice(-8));
-  return arr;
-}
 
 
-const getClaimableAmount = (market: MarketInfoType | null, userPositions: { long: number; short: number }) => {
-  if (!market || !market.is_resolved || (userPositions.long === 0 && userPositions.short === 0)) return 0;
-  const userLong = userPositions.long;
-  const userShort = userPositions.short;
-  const result = Number(market.result);
-  const longAmount = Number(market.long_amount);
-  const shortAmount = Number(market.short_amount);
-  const feePercentage = Number(market.fee_percentage);
-  let rawAmount = 0;
-  if (result === 0 && userLong > 0) {
-    // LONG win
-    const winnerPool = longAmount;
-    const winningPool = shortAmount;
-    rawAmount = userLong + Math.floor((userLong * winningPool) / winnerPool);
-  } else if (result === 1 && userShort > 0) {
-    // SHORT win
-    const winnerPool = shortAmount;
-    const winningPool = longAmount;
-    rawAmount = userShort + Math.floor((userShort * winningPool) / winnerPool);
+const getClaimableAmount = (market: MarketInfoType | null, userPositions: { long: number; short: number }, userMultiOutcomePositions: number[]) => {
+  if (!market || !market.is_resolved) return 0;
+  
+  // Check if this is a multi-outcome market
+  const isMultiOutcome = market.market_type && !market.market_type.is_binary;
+  
+  if (isMultiOutcome) {
+    // Multi-outcome market claimable amount calculation
+    const result = Number(market.result);
+    const userAmount = userMultiOutcomePositions[result] || 0;
+    
+    if (userAmount === 0) return 0;
+    
+    const winnerPool = (market.outcome_amounts && market.outcome_amounts[result]) ? market.outcome_amounts[result] : 0;
+    const totalAmount = Number(market.total_amount);
+    const loserPool = totalAmount - winnerPool;
+    const bonusInjected = market.bonus_injected || 0;
+    const distributable = loserPool + bonusInjected;
+    
+    if (winnerPool === 0) return 0;
+    
+    const rawAmount = userAmount + Math.floor((userAmount * distributable) / winnerPool);
+    const feePercentage = Number(market.fee_percentage);
+    const fee = Math.floor((feePercentage * rawAmount) / 1000);
+    
+    return rawAmount - fee;
   } else {
-    return 0;
+    // Binary market claimable amount calculation
+    if (userPositions.long === 0 && userPositions.short === 0) return 0;
+    
+    const userLong = userPositions.long;
+    const userShort = userPositions.short;
+    const result = Number(market.result);
+    const longAmount = Number(market.long_amount);
+    const shortAmount = Number(market.short_amount);
+    const feePercentage = Number(market.fee_percentage);
+    let rawAmount = 0;
+    
+    if (result === 0 && userLong > 0) {
+      // LONG win
+      const winnerPool = longAmount;
+      const winningPool = shortAmount;
+      rawAmount = userLong + Math.floor((userLong * winningPool) / winnerPool);
+    } else if (result === 1 && userShort > 0) {
+      // SHORT win
+      const winnerPool = shortAmount;
+      const winningPool = longAmount;
+      rawAmount = userShort + Math.floor((userShort * winningPool) / winnerPool);
+    } else {
+      return 0;
+    }
+    
+    // Fee: (fee_percentage * raw_amount) / 1000
+    const fee = Math.floor((feePercentage * rawAmount) / 1000);
+    return rawAmount - fee;
   }
-  // Fee: (fee_percentage * raw_amount) / 1000
-  const fee = Math.floor((feePercentage * rawAmount) / 1000);
-  return rawAmount - fee;
 };
 
 function clearLocalCache() {
@@ -91,13 +116,31 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const [phase, setPhase] = useState<Phase>(Phase.Pending);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSide, setSelectedSide] = useState<Side | null>(null);
+  const [selectedOutcome, setSelectedOutcome] = useState<number | null>(null);
   const [bidAmount, setBidAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [assetLogo, setAssetLogo] = useState<string>('');
   const [showRules, setShowRules] = useState(false);
   const [userPositions, setUserPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
+  const [userMultiOutcomePositions, setUserMultiOutcomePositions] = useState<number[]>([]);
+  
+  // Debug logging for userMultiOutcomePositions state changes
+  useEffect(() => {
+    console.log('[Customer] userMultiOutcomePositions state changed:', {
+      userMultiOutcomePositions,
+      length: userMultiOutcomePositions.length,
+      hasPositions: userMultiOutcomePositions.some(pos => pos > 0),
+      details: userMultiOutcomePositions.map((pos, idx) => ({
+        index: idx,
+        value: pos,
+        inAPT: (pos / 1e8).toFixed(4)
+      }))
+    });
+  }, [userMultiOutcomePositions]);
   const [positionHistory, setPositionHistory] = useState<{ time: number; long: number; short: number }[]>([]);
+  const [multiOutcomePositionHistory, setMultiOutcomePositionHistory] = useState<{ time: number; outcomeAmounts: number[] }[]>([]);
   const [refreshChart, setRefreshChart] = useState(0);
+  const [reloadTimeout, setReloadTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const [currentTime, setCurrentTime] = useState(Date.now());
   useEffect(() => {
@@ -112,7 +155,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   const [hasClaimed, setHasClaimed] = useState(false);
 
   
-  const claimableAmount = useMemo(() => getClaimableAmount(market, userPositions), [market, userPositions]);
+  const claimableAmount = useMemo(() => getClaimableAmount(market, userPositions, userMultiOutcomePositions), [market, userPositions, userMultiOutcomePositions]);
   const isOwner = useMemo(() => account?.address && market?.creator && account.address.toString().toLowerCase() === market.creator.toLowerCase(), [account?.address, market?.creator]);
   const canWithdrawFee = useMemo(() => isOwner && market?.is_resolved && !market?.fee_withdrawn, [isOwner, market]);
   const withdrawFeeAmount = useMemo(() => {
@@ -124,29 +167,115 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
 
   // Fetch user positions - remove dependency on fetchMarketData
   const fetchUserPositions = useCallback(async () => {
+    console.log('[Customer] fetchUserPositions called with:', {
+      connected,
+      accountAddress: account?.address?.toString(),
+      contractAddress,
+      marketType: market?.market_type
+    });
+    
     if (connected && account?.address && contractAddress) {
       try {
-        const [long, short, hasBid] = await getUserBid(account.address.toString(), contractAddress);
-        console.log('getUserBid:', { long, short, hasBid, account: account.address.toString(), contractAddress });
-        setUserPositions({
-          long: Number(long),
-          short: Number(short)
-        });
-        console.log('userPositions set:', { long: Number(long), short: Number(short) });
-      } catch {
-        console.error('getUserBid error');
+        // Check if this is a multi-outcome market
+        const isMultiOutcome = market?.market_type && !market.market_type.is_binary;
+        console.log('[Customer] Market type check:', { isMultiOutcome, marketType: market?.market_type });
+        
+        if (isMultiOutcome) {
+          // Debug: Check current user address
+          console.log('[Customer] Current user address debug:', {
+            accountAddress: account.address.toString(),
+            contractAddress,
+            isMultiOutcome,
+            marketType: market?.market_type
+          });
+          
+          // Add delay to avoid rate limit
+          console.log('[Customer] Adding delay to avoid rate limit...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Test API call first
+          console.log('[Customer] Testing API call...');
+          await testGetUserMultiOutcomePosition(account.address.toString(), contractAddress);
+          
+          // Fetch multi-outcome positions
+          console.log('[Customer] About to call main getUserMultiOutcomePosition...');
+          const positions = await getUserMultiOutcomePosition(account.address.toString(), contractAddress);
+          console.log('[Customer] Main getUserMultiOutcomePosition result:', { 
+            positions, 
+            positionsType: typeof positions,
+            positionsLength: positions?.length,
+            account: account.address.toString(), 
+            contractAddress,
+            isMultiOutcome: true,
+            marketPriceRangesLength: market?.price_ranges?.length
+          });
+          
+          // Ensure positions array has correct length for all outcomes
+          const expectedLength = market?.price_ranges?.length || 3; // Default to 3 if not available
+          const normalizedPositions = Array.from({ length: expectedLength }, (_, index) => 
+            positions[index] || 0
+          );
+          
+          console.log('[Customer] Normalized positions:', {
+            original: positions,
+            normalized: normalizedPositions,
+            expectedLength,
+            actualLength: positions.length
+          });
+          
+          console.log('[Customer] Setting userMultiOutcomePositions to:', normalizedPositions);
+          console.log('[Customer] About to call setUserMultiOutcomePositions...');
+          setUserMultiOutcomePositions(normalizedPositions);
+          console.log('[Customer] setUserMultiOutcomePositions called successfully');
+          // Set binary positions to 0 for multi-outcome markets
+          setUserPositions({ long: 0, short: 0 });
+        } else {
+          // Fetch binary positions
+          const [long, short, hasBid] = await getUserBid(account.address.toString(), contractAddress);
+          console.log('getUserBid:', { long, short, hasBid, account: account.address.toString(), contractAddress });
+          setUserPositions({
+            long: Number(long),
+            short: Number(short)
+          });
+          // Clear multi-outcome positions for binary markets
+          setUserMultiOutcomePositions([]);
+        }
+      } catch (error) {
+        console.error('fetchUserPositions error:', error);
         setUserPositions({ long: 0, short: 0 });
+        setUserMultiOutcomePositions([]);
       }
     } else {
       setUserPositions({ long: 0, short: 0 });
+      setUserMultiOutcomePositions([]);
     }
-  }, [connected, account, contractAddress]);
+  }, [connected, account, contractAddress, market?.market_type]);
 
   const fetchMarketData = useCallback(async (forceRefresh: boolean = false) => {
     if (!contractAddress) return;
     setIsLoading(true);
     try {
-      const details = await getMarketDetails(contractAddress, forceRefresh);
+      // Check for cached data first (unless force refresh)
+      let details = null;
+      if (!forceRefresh) {
+        try {
+          const cachedData = localStorage.getItem('contractData');
+          if (cachedData) {
+            details = JSON.parse(cachedData);
+            console.log('[Customer] Using cached market data for instant display');
+            // Clear cached data after use
+            localStorage.removeItem('contractData');
+          }
+        } catch (err) {
+          console.warn('[Customer] Failed to parse cached data', err);
+        }
+      }
+      
+      // If no cached data or force refresh, fetch from API
+      if (!details) {
+        details = await getMarketDetails(contractAddress, forceRefresh);
+      }
+      
       if (!details) {
         setIsLoading(false);
         toast({ title: 'Market not found', description: 'This market does not exist or has been removed.', status: 'error' });
@@ -182,7 +311,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     let timeout: NodeJS.Timeout | null = null;
     const poll = async () => {
       await fetchMarketData(waitingForResolve);
-      await fetchUserPositions();
+      // Remove fetchUserPositions from polling - only fetch when needed
     };
     poll();
     let polling = false;
@@ -213,36 +342,79 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     let isMounted = true;
     const fetchPositionHistory = async () => {
       try {
+        console.log('[Customer] Fetching position history for:', contractAddress);
+        
         // Fetch all BidEvents from API
         const bidEvents = await getMarketBidEvents(contractAddress);
+        console.log('[Customer] Fetched bid events:', bidEvents.length);
 
         const market = await getMarketDetails(contractAddress);
         const biddingStartTime = market?.bidding_start_time ? Number(market.bidding_start_time) * 1000 : undefined;
         const biddingEndTime = market?.bidding_end_time ? Number(market.bidding_end_time) * 1000 : undefined;
+        
+        console.log('[Customer] Market details:', {
+          isMultiOutcome: market?.market_type && !market.market_type.is_binary,
+          priceRangesLength: market?.price_ranges?.length,
+          outcomeAmounts: market?.outcome_amounts,
+          biddingStartTime: biddingStartTime ? new Date(biddingStartTime).toISOString() : null,
+          biddingEndTime: biddingEndTime ? new Date(biddingEndTime).toISOString() : null
+        });
+        
         if (biddingStartTime && biddingEndTime) {
-          const timeline = buildPositionTimeline(
-            bidEvents,
-            biddingStartTime,
-            biddingEndTime,
-            Date.now()
-          );
-          if (isMounted) setPositionHistory(timeline);
+          // Check if this is a multi-outcome market
+          const isMultiOutcome = market?.market_type && !market.market_type.is_binary;
+          
+          if (isMultiOutcome && market?.price_ranges) {
+            // Multi-outcome market
+            const timeline = buildMultiOutcomePositionTimeline(
+              bidEvents,
+              biddingStartTime,
+              biddingEndTime,
+              Date.now(),
+              market.price_ranges.length
+            );
+            console.log('[Customer] Built multi-outcome timeline:', timeline.length, 'points');
+            if (isMounted) {
+              setMultiOutcomePositionHistory(timeline);
+              setPositionHistory([]); // Clear binary history
+            }
+          } else {
+            // Binary market
+            const timeline = buildPositionTimeline(
+              bidEvents,
+              biddingStartTime,
+              biddingEndTime,
+              Date.now()
+            );
+            console.log('[Customer] Built binary timeline:', timeline.length, 'points');
+            if (isMounted) {
+              setPositionHistory(timeline);
+              setMultiOutcomePositionHistory([]); // Clear multi-outcome history
+            }
+          }
         } else {
-          if (isMounted) setPositionHistory([]);
+          console.log('[Customer] No bidding times, clearing history');
+          if (isMounted) {
+            setPositionHistory([]);
+            setMultiOutcomePositionHistory([]);
+          }
         }
-      } catch {
-        if (isMounted) setPositionHistory([]);
-      } finally {
+      } catch (error) {
+        console.error('[Customer] Error fetching position history:', error);
+        if (isMounted) {
+          setPositionHistory([]);
+          setMultiOutcomePositionHistory([]);
+        }
       }
     };
     fetchPositionHistory();
     return () => { isMounted = false; };
-  }, [contractAddress, phase, refreshChart]);
+  }, [contractAddress, phase, refreshChart]); // Only refresh when refreshChart changes (after bet)
 
   // Fetch user bid on mount and when contractAddress changes - separate from fetchMarketData
   useEffect(() => {
     if (!contractAddress || !account?.address) return;
-    fetchUserPositions(); // initial fetch
+    fetchUserPositions(); // initial fetch only
     const unsubscribe = EventListenerService.getInstance().subscribe(contractAddress, (events) => {
       if (
         events.some(
@@ -252,23 +424,31 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
             (e.data as { user?: string }).user?.toLowerCase() === account.address.toString().toLowerCase()
         )
       ) {
+        // Only fetch user positions when user actually bets
+        console.log('[Customer] User bet detected, fetching positions...');
         fetchUserPositions();
       }
     });
-    return () => { if (unsubscribe) unsubscribe(); };
-  }, [contractAddress, account?.address, fetchUserPositions]);
+    return () => { 
+      if (unsubscribe) unsubscribe();
+      // Cleanup timeout on unmount
+      if (reloadTimeout) {
+        clearTimeout(reloadTimeout);
+      }
+    };
+  }, [contractAddress, account?.address, fetchUserPositions, reloadTimeout]);
 
   // Fetch market data on mount and when contractAddress changes
   useEffect(() => { 
     fetchMarketData(); 
   }, [fetchMarketData]);
 
-  // Fetch user positions after market data is loaded
-  useEffect(() => {
-    if (market && connected && account?.address) {
-      fetchUserPositions();
-    }
-  }, [market, connected, account, fetchUserPositions]);
+  // Fetch user positions after market data is loaded - REMOVED to reduce API calls
+  // useEffect(() => {
+  //   if (market && connected && account?.address) {
+  //     fetchUserPositions();
+  //   }
+  // }, [market, connected, account, fetchUserPositions]);
 
   // Sửa useEffect cập nhật hasClaimed:
   useEffect(() => {
@@ -289,12 +469,12 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     console.log('[DEBUG] claimableAmount:', claimableAmount);
   }, [account?.address, market?.is_resolved, userPositions, claimableAmount]);
 
-  // Khi market resolve xong thì fetch lại userPositions để cập nhật UI
-  useEffect(() => {
-    if (market?.is_resolved && account?.address) {
-      fetchUserPositions();
-    }
-  }, [market?.is_resolved, account?.address]);
+  // Khi market resolve xong thì fetch lại userPositions để cập nhật UI - REMOVED to reduce API calls
+  // useEffect(() => {
+  //   if (market?.is_resolved && account?.address) {
+  //     fetchUserPositions();
+  //   }
+  // }, [market?.is_resolved, account?.address]);
 
   // Fetch asset price
   useEffect(() => {
@@ -342,26 +522,111 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
 
   // Handlers
   const handleBid = async () => {
-    if (selectedSide === null || !bidAmount || !signAndSubmitTransaction) return;
+    if (!bidAmount || !signAndSubmitTransaction) return;
     if (!connected || !account?.address) {
       toast({ title: 'Please connect your wallet to perform this action.', status: 'warning' });
       return;
     }
-    setIsSubmitting(true);
-    try {
-      const timestampBid = Math.floor(Date.now() / 1000);
-      await bid(signAndSubmitTransaction, contractAddress, selectedSide === Side.Long, parseFloat(bidAmount), timestampBid);
-      toast({ title: 'Bid submitted', status: 'success' });
-      setBidAmount('');
-      // Update market, userPositions, and chart
-      const details = await getMarketDetails(contractAddress);
-      setMarket(details);
-      await fetchUserPositions();
-      setRefreshChart(c => c + 1); // Trigger chart refresh
-    } catch (error: unknown) {
-      toast({ title: 'Bid failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
-    } finally {
-      setIsSubmitting(false);
+    
+    // Check if this is a multi-outcome market
+    const isMultiOutcome = market?.market_type && !market.market_type.is_binary;
+    
+    if (isMultiOutcome) {
+      // Multi-outcome market bidding
+      if (selectedOutcome === null) {
+        toast({ title: 'Please select an outcome', status: 'warning' });
+        return;
+      }
+      
+      setIsSubmitting(true);
+      try {
+        const timestampBid = Math.floor(Date.now() / 1000);
+        await bidMultiOutcome(signAndSubmitTransaction, contractAddress, selectedOutcome, parseFloat(bidAmount), timestampBid);
+        toast({ title: 'Bid submitted', status: 'success' });
+        setBidAmount('');
+        setSelectedOutcome(null);
+        
+        console.log('[Customer] Multi-outcome bid successful, refreshing data...');
+        
+        // Wait a bit for transaction to be processed
+        console.log('[Customer] Waiting 3 seconds for transaction to be processed...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Update market, userPositions, and chart
+        const details = await getMarketDetails(contractAddress);
+        setMarket(details);
+        
+        console.log('[Customer] Market details updated, fetching user positions...');
+        await fetchUserPositions();
+        
+        console.log('[Customer] User positions fetched, triggering chart refresh...');
+        setCurrentTime(Date.now()); // Update current time for chart
+        setRefreshChart(c => c + 1); // Trigger chart refresh
+        
+        // Schedule additional data reload after 30s to ensure accuracy
+        if (reloadTimeout) {
+          clearTimeout(reloadTimeout);
+        }
+        const timeout = setTimeout(async () => {
+          console.log('[Customer] 30s after bet - reloading data for accuracy...');
+          try {
+            const details = await getMarketDetails(contractAddress);
+            setMarket(details);
+            await fetchUserPositions();
+            setCurrentTime(Date.now());
+            setRefreshChart(c => c + 1);
+          } catch (error) {
+            console.warn('[Customer] 30s reload failed:', error);
+          }
+        }, 30000);
+        setReloadTimeout(timeout);
+      } catch (error: unknown) {
+        toast({ title: 'Bid failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
+      } finally {
+        setIsSubmitting(false);
+      }
+    } else {
+      // Binary market bidding
+      if (selectedSide === null) {
+        toast({ title: 'Please select a side', status: 'warning' });
+        return;
+      }
+      
+      setIsSubmitting(true);
+      try {
+        const timestampBid = Math.floor(Date.now() / 1000);
+        await bid(signAndSubmitTransaction, contractAddress, selectedSide === Side.Long, parseFloat(bidAmount), timestampBid);
+        toast({ title: 'Bid submitted', status: 'success' });
+        setBidAmount('');
+        // Update market, userPositions, and chart
+        const details = await getMarketDetails(contractAddress);
+        setMarket(details);
+        await fetchUserPositions();
+        setCurrentTime(Date.now()); // Update current time for chart
+        setRefreshChart(c => c + 1); // Trigger chart refresh
+        
+        // Schedule additional data reload after 30s to ensure accuracy
+        if (reloadTimeout) {
+          clearTimeout(reloadTimeout);
+        }
+        const timeout = setTimeout(async () => {
+          console.log('[Customer] 30s after bet - reloading data for accuracy...');
+          try {
+            const details = await getMarketDetails(contractAddress);
+            setMarket(details);
+            await fetchUserPositions();
+            setCurrentTime(Date.now());
+            setRefreshChart(c => c + 1);
+          } catch (error) {
+            console.warn('[Customer] 30s reload failed:', error);
+          }
+        }, 30000);
+        setReloadTimeout(timeout);
+      } catch (error: unknown) {
+        toast({ title: 'Bid failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -374,43 +639,48 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     setIsSubmitting(true);
     setPrevMarket(market);
     try {
-      // get price_feed_id from market
-      let priceFeedId = market.price_feed_id;
-      if (Array.isArray(priceFeedId)) {
-        priceFeedId = priceFeedId.map((b: number) => b.toString(16).padStart(2, '0')).join('');
-      } else if (typeof priceFeedId === 'string' && priceFeedId.startsWith('0x')) {
-        priceFeedId = priceFeedId.slice(2);
+      // Normalize price_feed_id from market
+      const priceFeedId = normalizePriceFeedId(market.price_feed_id);
+      if (!priceFeedId) {
+        throw new Error('Invalid or missing price_feed_id in market data');
       }
-      if (typeof priceFeedId !== 'string' || priceFeedId.length !== 64) {
-        throw new Error('Invalid price_feed_id for Hermes');
-      }
-      // call Hermes API to get latest VAA (pyth_price_update)
-      const url = `https://hermes.pyth.network/api/latest_vaas?ids[]=${priceFeedId}`;
-      console.log('[handleResolve] Hermes URL:', url);
-      const res = await fetch(url);
-      const responseText = await res.text();
-      console.log('[handleResolve] Hermes raw response:', responseText);
-      if (!res.ok) throw new Error('Failed to fetch Pyth price update');
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        console.error('[handleResolve] Lỗi parse JSON từ Hermes:', e, responseText);
-        throw new Error('Hermes trả về dữ liệu không phải JSON');
-      }
-     
-      let vaas: string[] = [];
-      if (Array.isArray(data)) {
-        vaas = data;
-      } else if (data && Array.isArray(data.vaas)) {
-        vaas = data.vaas;
-      } 
-      console.log('[handleResolve][DEBUG] vaas:', vaas, 'length:', vaas.length, 'typeof vaas[0]:', typeof vaas[0], 'vaas[0] length:', vaas[0]?.length, 'vaas[0] value:', vaas[0]);
+      
+      console.log('[handleResolve] Using price_feed_id:', priceFeedId);
+      
+      // Fetch and validate VAA data from Hermes API
+      const vaas = await fetchAndValidateVAA(priceFeedId);
+      console.log('[handleResolve] Retrieved and validated VAAs:', vaas.length, 'first VAA length:', vaas[0]?.length);
 
       const pythPriceUpdate: number[][] = vaas.map((vaa, idx) => {
         const bytes = base64ToBytes(vaa);
         console.log(`[handleResolve] VAA[${idx}] bytes length:`, bytes.length, 'first:', bytes.slice(0, 8), 'last:', bytes.slice(-8));
-        return bytes;
+        
+        // Log VAA header analysis
+        if (bytes.length >= 4) {
+          const header = bytes.slice(0, 4);
+          const headerHex = header.map(b => b.toString(16).padStart(2, '0')).join(' ');
+          console.log(`[handleResolve] VAA[${idx}] header:`, header, 'hex:', headerHex);
+          
+          // Check for PNAU header
+          if (header[0] === 80 && header[1] === 78 && header[2] === 65 && header[3] === 85) {
+            console.log(`[handleResolve] VAA[${idx}] has valid PNAU header`);
+          } else {
+            console.warn(`[handleResolve] VAA[${idx}] has unexpected header:`, header);
+          }
+        }
+        
+        // Ensure all bytes are numbers, not strings
+        const normalizedBytes = bytes.map(byte => {
+          const num = Number(byte);
+          if (isNaN(num) || num < 0 || num > 255) {
+            console.warn(`[handleResolve] Invalid byte value:`, byte, 'converted to:', num);
+            return 0;
+          }
+          return num;
+        });
+        
+        console.log(`[handleResolve] VAA[${idx}] normalized length:`, normalizedBytes.length, 'first 8:', normalizedBytes.slice(0, 8));
+        return normalizedBytes;
       });
       console.log('[handleResolve] contractAddress:', contractAddress);
       console.log('[handleResolve] pythPriceUpdate count:', pythPriceUpdate.length);
@@ -423,7 +693,7 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
       try {
         await resolveMarket(signAndSubmitTransaction, contractAddress, pythPriceUpdate);
         console.log('[handleResolve] resolveMarket SUCCESS');
-      toast({ title: 'Market resolve transaction submitted', status: 'success' });
+        toast({ title: 'Market resolve transaction submitted', status: 'success' });
         const details = await getMarketDetails(contractAddress);
         setMarket(details);
         await fetchMarketData();
@@ -432,6 +702,83 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
         clearLocalCache(); // Clear cache after successful resolve
       } catch (err) {
         console.error('[handleResolve] resolveMarket ERROR:', err);
+        
+        // Check if it's a VAA version error or simulation error and try with different data
+        if (err instanceof Error && (err.message.includes('E_WRONG_VERSION') || err.message.includes('Simulation error') || err.message.includes('Generic error'))) {
+          console.log('[handleResolve] VAA/simulation error detected, trying alternative approach...');
+          
+          try {
+            // Try with a fresh VAA fetch (maybe the previous one was stale)
+            const freshVaas = await fetchAndValidateVAA(priceFeedId);
+            
+            // Check VAA size and try to optimize if too large
+            let freshPythPriceUpdate: number[][] = freshVaas.map((vaa, idx) => {
+              const bytes = base64ToBytes(vaa);
+              const normalizedBytes = bytes.map(byte => {
+                const num = Number(byte);
+                return isNaN(num) || num < 0 || num > 255 ? 0 : num;
+              });
+              return normalizedBytes;
+            });
+            
+            // If VAA is too large, try to truncate it (keep first 1000 bytes for safety)
+            const totalBytes = freshPythPriceUpdate.reduce((sum, chunk) => sum + chunk.length, 0);
+            if (totalBytes > 1000) {
+              console.log(`[handleResolve] VAA too large (${totalBytes} bytes), truncating to 1000 bytes...`);
+              freshPythPriceUpdate = freshPythPriceUpdate.map(chunk => chunk.slice(0, 1000));
+            }
+            
+            console.log('[handleResolve] Retrying with fresh VAA data...', {
+              originalSize: totalBytes,
+              newSize: freshPythPriceUpdate.reduce((sum, chunk) => sum + chunk.length, 0),
+              chunks: freshPythPriceUpdate.length
+            });
+            
+            await resolveMarket(signAndSubmitTransaction, contractAddress, freshPythPriceUpdate);
+            console.log('[handleResolve] resolveMarket SUCCESS on retry');
+            toast({ title: 'Market resolve transaction submitted (retry)', status: 'success' });
+            
+            const details = await getMarketDetails(contractAddress);
+            setMarket(details);
+            await fetchMarketData();
+            await fetchUserPositions();
+            setWaitingForResolve(true);
+            clearLocalCache();
+            return; // Success on retry
+          } catch (retryErr) {
+            console.error('[handleResolve] Retry also failed:', retryErr);
+            
+            // Last resort: try with minimal VAA data
+            if (retryErr instanceof Error && (retryErr.message.includes('Simulation error') || retryErr.message.includes('Generic error'))) {
+              console.log('[handleResolve] Trying with minimal VAA data as last resort...');
+              
+              try {
+                // Create minimal VAA with just PNAU header
+                const minimalVaa = [80, 78, 65, 85, 1, 0, 0, 0]; // PNAU + version
+                const minimalPayload = [minimalVaa];
+                
+                console.log('[handleResolve] Using minimal VAA:', minimalVaa);
+                await resolveMarket(signAndSubmitTransaction, contractAddress, minimalPayload);
+                console.log('[handleResolve] resolveMarket SUCCESS with minimal VAA');
+                toast({ title: 'Market resolve transaction submitted (minimal VAA)', status: 'success' });
+                
+                const details = await getMarketDetails(contractAddress);
+                setMarket(details);
+                await fetchMarketData();
+                await fetchUserPositions();
+                setWaitingForResolve(true);
+                clearLocalCache();
+                return; // Success with minimal VAA
+              } catch (minimalErr) {
+                console.error('[handleResolve] Minimal VAA also failed:', minimalErr);
+                throw new Error(`Market resolution failed: ${err.message.includes('Simulation error') ? 'Simulation error' : 'VAA error'}. Please try again later. Original error: ${err.message}`);
+              }
+            }
+            
+            throw new Error(`Market resolution failed: ${err.message.includes('Simulation error') ? 'Simulation error' : 'VAA error'}. Please try again later. Original error: ${err.message}`);
+          }
+        }
+        
         throw err;
       }
     } catch (error: unknown) {
@@ -450,7 +797,15 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     }
     setIsSubmitting(true);
     try {
-      await claim(signAndSubmitTransaction, contractAddress);
+      // Check if this is a multi-outcome market
+      const isMultiOutcome = market?.market_type && !market.market_type.is_binary;
+      
+      if (isMultiOutcome) {
+        await claimMultiOutcome(signAndSubmitTransaction, contractAddress);
+      } else {
+        await claim(signAndSubmitTransaction, contractAddress);
+      }
+      
       toast({ title: 'Claim transaction submitted', status: 'success' });
       await fetchMarketData();
       await fetchUserPositions(); // Luôn fetch lại userPositions sau khi claim
@@ -581,11 +936,14 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                       chartSymbol={getStandardPairName(market.pair_name) || market?.pair_name}
                       strikePrice={market?.strike_price ? Number(market.strike_price) / 1e8 : Number(market?.strike_price || 0)}
                       chartType="position"
-                      data={positionHistory}
+                      data={market?.market_type && !market.market_type.is_binary ? multiOutcomePositionHistory : positionHistory}
                       height={CHART_HEIGHT}
                       biddingStartTime={market?.bidding_start_time ? Number(market.bidding_start_time) * 1000 : undefined}
                       biddingEndTime={market?.bidding_end_time ? Number(market.bidding_end_time) * 1000 : undefined}
                       currentTime={currentTime}
+                      isMultiOutcome={market?.market_type && !market.market_type.is_binary}
+                      priceRanges={market?.price_ranges || []}
+                      outcomeAmounts={market?.outcome_amounts || []}
                     />
                   </Box>
                 </TabPanel>
@@ -614,6 +972,27 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
 
           {/* Right Side - Betting Panel and Market Info */}
           <Box width={{ base: '100%', md: '30%' }} ml={{ md: 2 }} minW={{ md: '280px' }} maxW={{ md: '340px' }} alignSelf="flex-start">
+            {(() => {
+              const isBinary = market?.market_type && market.market_type.is_binary;
+              const isMultiOutcome = market?.market_type && !market.market_type.is_binary;
+              const showFinalPrice = phase === Phase.Maturity && market?.is_resolved;
+              const showWinningRange = phase === Phase.Maturity && market?.is_resolved && isMultiOutcome && market.price_ranges;
+              
+              // Only show container if there's content to display
+              const shouldShowContainer = isBinary || showFinalPrice || showWinningRange;
+              
+              console.log('[Customer] Container visibility debug:', {
+                isBinary,
+                isMultiOutcome,
+                showFinalPrice,
+                showWinningRange,
+                shouldShowContainer,
+                phase,
+                isResolved: market?.is_resolved
+              });
+              
+              return shouldShowContainer;
+            })() && (
             <Box
               bg="gray.800"
               p={6}
@@ -623,15 +1002,45 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
               borderColor="gray.700"
               boxShadow="0 4px 32px 0 rgba(0,0,0,0.25)"
             >
-              <Flex justify="space-between" align="center" textAlign="center" fontSize="20px" color="white">
-                <HStack justify="center" align="center">
-                  <Text color="gray.400">Strike Price: </Text>
-                  <Text fontWeight="bold">
-                    {strike} 
-                  </Text>
-                  <Text fontWeight="bold" color="#FEDF56">USD</Text>
-                </HStack>
-              </Flex>
+              {(() => {
+                const isBinary = market?.market_type && market.market_type.is_binary;
+                const isMultiOutcome = market?.market_type && !market.market_type.is_binary;
+                
+                console.log('[Customer] Market type debug:', {
+                  marketType: market?.market_type,
+                  isBinary: market?.market_type?.is_binary,
+                  isMultiOutcome: isMultiOutcome,
+                  shouldShowStrikePrice: isBinary,
+                  marketTypeString: JSON.stringify(market?.market_type),
+                  phase: phase,
+                  isResolved: market?.is_resolved
+                });
+                
+                // Force hide for multi-outcome markets
+                if (isMultiOutcome) {
+                  console.log('[Customer] Multi-outcome market detected, hiding Strike Price box');
+                  return false;
+                }
+                
+                // Force hide if not binary
+                if (!isBinary) {
+                  console.log('[Customer] Non-binary market detected, hiding Strike Price box');
+                  return false;
+                }
+                
+                console.log('[Customer] Binary market detected, showing Strike Price box');
+                return isBinary;
+              })() && (
+                <Flex justify="space-between" align="center" textAlign="center" fontSize="20px" color="white">
+                  <HStack justify="center" align="center">
+                    <Text color="gray.400">Strike Price: </Text>
+                    <Text fontWeight="bold">
+                      {strike} 
+                    </Text>
+                    <Text fontWeight="bold" color="#FEDF56">USD</Text>
+                  </HStack>
+                </Flex>
+              )}
 
               {/* Show Final Price in Maturity phase */}
               {phase === Phase.Maturity && market?.is_resolved && (
@@ -642,6 +1051,18 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                       {(Number(market.final_price) / 1e8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                     </Text>
                     <Text fontWeight="bold" color="#FEDF56">USD</Text>
+                  </HStack>
+                </Flex>
+              )}
+
+              {/* Show Winning Outcome for Multi-Outcome Market */}
+              {phase === Phase.Maturity && market?.is_resolved && market?.market_type && !market.market_type.is_binary && market.price_ranges && (
+                <Flex justify="space-between" align="center" mt={2}>
+                  <HStack fontSize="20px">
+                    <Text color="gray.400">Winning Range:</Text>
+                    <Text fontWeight="bold" color="green">
+                      {market.price_ranges[Number(market.result)]?.outcome_name || `Outcome ${market.result}`}
+                    </Text>
                   </HStack>
                 </Flex>
               )}
@@ -679,26 +1100,51 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
                 </Button>
               )}
             </Box>
+            )}
 
             {/* Betting Panel - Only show during Bidding phase */}
             {(phase === Phase.Pending || phase === Phase.Bidding) && (
-              <MarketBetPanel
-                phase={phase}
-                selectedSide={selectedSide}
-                setSelectedSide={setSelectedSide}
-                bidAmount={bidAmount}
-                setBidAmount={setBidAmount}
-                handleBid={handleBid}
-                isSubmitting={isSubmitting}
-                connected={connected}
-                longPercentage={longPercentage}
-                shortPercentage={shortPercentage}
-                userPositions={userPositions}
-                fee={fee}
-                longAmount={long}
-                shortAmount={short}
-                totalAmount={total}
-              />
+              <>
+                {/* Multi-outcome market betting panel */}
+                {market?.market_type && !market.market_type.is_binary && market.price_ranges && (
+                  <MultiOutcomeBetPanel
+                    phase={phase}
+                    selectedOutcome={selectedOutcome}
+                    setSelectedOutcome={setSelectedOutcome}
+                    bidAmount={bidAmount}
+                    setBidAmount={setBidAmount}
+                    handleBid={handleBid}
+                    isSubmitting={isSubmitting}
+                    connected={connected}
+                    userPositions={userMultiOutcomePositions}
+                    fee={fee}
+                    totalAmount={total}
+                    priceRanges={market.price_ranges}
+                    outcomeAmounts={market.outcome_amounts || []}
+                  />
+                )}
+                
+                {/* Binary market betting panel */}
+                {(!market?.market_type || market.market_type.is_binary) && (
+                  <MarketBetPanel
+                    phase={phase}
+                    selectedSide={selectedSide}
+                    setSelectedSide={setSelectedSide}
+                    bidAmount={bidAmount}
+                    setBidAmount={setBidAmount}
+                    handleBid={handleBid}
+                    isSubmitting={isSubmitting}
+                    connected={connected}
+                    longPercentage={longPercentage}
+                    shortPercentage={shortPercentage}
+                    userPositions={userPositions}
+                    fee={fee}
+                    longAmount={long}
+                    shortAmount={short}
+                    totalAmount={total}
+                  />
+                )}
+              </>
             )}
 
             {/* Market Timeline */}

@@ -1,6 +1,7 @@
 import React from 'react';
 import PriceChart from './PriceChart';
 import PositionChart from './PositionChart';
+import MultiOutcomePositionChart from './MultiOutcomePositionChart';
 import { getTradingPairInfo } from '../../config/tradingPairs';
 import { getCoinGeckoId } from '../../utils/symbolToCoinGeckoId';
 
@@ -10,15 +11,28 @@ interface PositionPoint {
   short: number;
 }
 
+interface MultiOutcomePositionPoint {
+  time: number;
+  outcomeAmounts: number[];
+}
+
 interface MarketChartsProps {
   chartSymbol: string; // e.g. BNB/USD
   strikePrice?: number;
   chartType: 'price' | 'position';
-  data?: PositionPoint[];
+  data?: PositionPoint[] | MultiOutcomePositionPoint[];
   height?: number;
   biddingStartTime?: number;
   biddingEndTime?: number;
   currentTime?: number;
+  // Multi-outcome specific props
+  isMultiOutcome?: boolean;
+  priceRanges?: Array<{
+    min_price: number | string;
+    max_price: number | string;
+    outcome_name: string;
+  }>;
+  outcomeAmounts?: number[];
 }
 
 const MarketCharts: React.FC<MarketChartsProps> = ({ 
@@ -29,7 +43,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   height = 400, 
   biddingStartTime,
   biddingEndTime,
-  currentTime
+  currentTime,
+  isMultiOutcome = false,
+  priceRanges = [],
+  outcomeAmounts = []
 }) => {
 
   if (chartType === 'price') {
@@ -55,9 +72,21 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     />;
   }
   
+  // Position chart - choose between binary and multi-outcome
+  if (isMultiOutcome && priceRanges.length > 0) {
+    return <MultiOutcomePositionChart 
+      data={data as MultiOutcomePositionPoint[]} 
+      height={height} 
+      biddingStartTime={biddingStartTime}
+      biddingEndTime={biddingEndTime}
+      currentTime={currentTime}
+      priceRanges={priceRanges}
+      outcomeAmounts={outcomeAmounts}
+    />;
+  }
   
   return <PositionChart 
-    data={data} 
+    data={data as PositionPoint[]} 
     height={height} 
     biddingStartTime={biddingStartTime}
     biddingEndTime={biddingEndTime}

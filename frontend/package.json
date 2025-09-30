@@ -9,7 +9,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "vercel-build": "npm install --legacy-peer-deps && next build"
+    "vercel-build": "npm install --legacy-peer-deps && next build",
+    "switch:mainnet": "node scripts/switch-network.js mainnet",
+    "switch:testnet": "node scripts/switch-network.js testnet",
+    "switch:devnet": "node scripts/switch-network.js devnet"
   },
   "dependencies": {
     "@aptos-labs/ts-sdk": "^1.39.0",
@@ -36,6 +39,7 @@
     "chartjs-adapter-date-fns": "^3.0.0",
     "date-fns": "^2.30.0",
     "date-fns-tz": "^2.0.0",
+    "dayjs": "^1.11.18",
     "framer-motion": "^10.18.0",
     "graphql": "^16.8.1",
     "graphql-request": "^6.1.0",

@@ -1,4 +1,4 @@
-import { Box, HStack, Button, Flex, Text, FormControl, FormLabel, Input } from '@chakra-ui/react';
+import { Box, HStack, VStack, Button, Flex, Text, FormControl, FormLabel, Input } from '@chakra-ui/react';
 import { FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import { useSpring, animated } from '@react-spring/web';
 
@@ -84,7 +84,7 @@ const MarketBetPanel: React.FC<MarketBetPanelProps> = ({
         <Button border="1px solid" borderColor="gray.300" borderRadius="20px" colorScheme="gray" bg="gray.800" width="50%" onClick={() => setSelectedSide(1)} leftIcon={<FaArrowDown />} textColor="#dc3545" textShadow="1px 1px 12px rgba(220, 53, 69, 0.7)" isDisabled={!connected || phase !== 1 || isPending} _hover={{ bg: "gray.700", boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)" }} _active={{ bg: "#cececc" }} isActive={selectedSide === 1}>DOWN</Button>
       </HStack>
       <FormControl mb={2} mt={6} color="white">
-        <FormLabel>You&apos;re betting</FormLabel>
+        <FormLabel>Amount</FormLabel>
         <Input 
           placeholder="Enter amount in APT" 
           bg="gray.800" 
@@ -120,29 +120,30 @@ const MarketBetPanel: React.FC<MarketBetPanelProps> = ({
           </Box>
         </Box>
       </Flex>
-      <Text fontSize="lg" fontWeight="bold" mb={1} mt={3} color="#FEDF56">My Position</Text>
+      <Text fontSize="lg" fontWeight="bold" mb={1} mt={3} color="#FEDF56">My Positions</Text>
       {hasPosition ? (
-        <>
-          <Flex justify="space-between" mb={1.5}>
-            <Text color="green.400">LONG:</Text>
-            <Text color="white">{(userPositions.long / 100000000).toFixed(4)} APT</Text>
-          </Flex>
-          <Flex justify="space-between">
-            <Text color="red.400">SHORT:</Text>
-            <Text color="white">{(userPositions.short / 100000000).toFixed(4)} APT</Text>
-          </Flex>
-        </>
+        <VStack spacing={1} align="stretch">
+          {userPositions.long > 0 && (
+            <Flex justify="space-between" align="center" px={2} py={1} bg="gray.700" borderRadius="md">
+              <Text color="green.400" fontSize="sm" fontWeight="bold">LONG</Text>
+              <Text color="white" fontSize="sm" fontWeight="bold">
+                {(userPositions.long / 1e8).toFixed(4)} APT
+              </Text>
+            </Flex>
+          )}
+          {userPositions.short > 0 && (
+            <Flex justify="space-between" align="center" px={2} py={1} bg="gray.700" borderRadius="md">
+              <Text color="red.400" fontSize="sm" fontWeight="bold">SHORT</Text>
+              <Text color="white" fontSize="sm" fontWeight="bold">
+                {(userPositions.short / 1e8).toFixed(4)} APT
+              </Text>
+            </Flex>
+          )}
+        </VStack>
       ) : (
-        <>
-          <Flex justify="space-between" mb={2}>
-            <Text color="green.400">LONG:</Text>
-            <Text color="white">{(userPositions.long / 100000000).toFixed(4)} APT</Text>
-          </Flex>
-          <Flex justify="space-between">
-            <Text color="red.400">SHORT:</Text>
-            <Text color="white">{(userPositions.short / 100000000).toFixed(4)} APT</Text>
-          </Flex>
-        </>
+        <Text color="gray.500" fontSize="sm" textAlign="center" py={2}>
+          No positions yet
+        </Text>
       )}
     </Box>
   );

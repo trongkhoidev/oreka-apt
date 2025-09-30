@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: oreka
+      POSTGRES_USER: oreka
+      POSTGRES_PASSWORD: oreka_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oreka -d oreka"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  indexer:
+    build: .
+    environment:
+      PG_URL: postgres://oreka:oreka_password@postgres:5432/oreka
+      APTOS_INDEXER: https://indexer.mainnet.aptoslabs.com/v1/graphql
+      MODULE_ADDR: 0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d
+      MODULE_NAME: market_core
+      BATCH_SIZE: 1000
+      POLL_INTERVAL_MS: 1500
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@oreka.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  postgres_data:
+  pgadmin_data:

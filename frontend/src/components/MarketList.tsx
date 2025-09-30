@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Box, VStack, HStack, Text, Button, Badge, Spinner, SimpleGrid } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
+import { getMarketDetails } from '../services/aptosMarketService';
 
 interface Market {
   id?: string;
@@ -19,6 +20,43 @@ interface MarketListProps {
 
 const MarketList: React.FC<MarketListProps> = ({ markets, loading, onRefresh, showPagination = true }) => {
   const router = useRouter();
+
+  // Preload market data on hover for faster navigation
+  const handleMouseEnter = useCallback((market: Market) => {
+    const marketAddress = market.id || market.object_address;
+    if (marketAddress) {
+      // Preload market data in background
+      getMarketDetails(marketAddress, false).then(data => {
+        if (data) {
+          // Store in sessionStorage for instant access
+          try {
+            sessionStorage.setItem(`market_${marketAddress}`, JSON.stringify(data));
+          } catch (err) {
+            console.warn('[MarketList] Failed to cache market data', err);
+          }
+        }
+      }).catch(err => {
+        console.warn('[MarketList] Failed to preload market data', err);
+      });
+    }
+  }, []);
+
+  const handleMarketClick = useCallback((market: Market) => {
+    const marketAddress = market.id || market.object_address;
+    if (marketAddress) {
+      // Check for cached market data first
+      try {
+        const cachedData = sessionStorage.getItem(`market_${marketAddress}`);
+        if (cachedData) {
+          console.log('[MarketList] Using cached market data for faster navigation');
+          localStorage.setItem('contractData', cachedData);
+        }
+      } catch (err) {
+        console.warn('[MarketList] Failed to access cached data', err);
+      }
+      router.push(`/customer/${marketAddress}`);
+    }
+  }, [router]);
 
   if (loading) {
     return <Spinner size="xl" />;
@@ -43,13 +81,22 @@ const MarketList: React.FC<MarketListProps> = ({ markets, loading, onRefresh, sh
         <>
           <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
             {markets.map((market) => (
-              <Box key={market.id || market.object_address} p={4} borderWidth={1} borderRadius="md">
+              <Box 
+                key={market.id || market.object_address} 
+                p={4} 
+                borderWidth={1} 
+                borderRadius="md"
+                onMouseEnter={() => handleMouseEnter(market)}
+                cursor="pointer"
+                _hover={{ bg: 'gray.50' }}
+                onClick={() => handleMarketClick(market)}
+              >
                 <HStack justify="space-between">
                   <Text fontWeight="bold">{market.pair_name || market.tradingPair}</Text>
                   <Badge colorScheme={market.is_resolved ? 'green' : 'blue'}>
                     {market.is_resolved ? 'Resolved' : 'Active'}
                   </Badge>
-                  <Button size="sm" onClick={() => router.push(`/customer/${market.id || market.object_address}`)}>
+                  <Button size="sm" onClick={(e) => { e.stopPropagation(); handleMarketClick(market); }}>
                     View
                   </Button>
                 </HStack>
