@@ -62,7 +62,7 @@ export default function ProfilePage() {
         setIsLoading(true);
         setError(null);
         console.log('Fetching profile for:', address);
-        const resp = await fetch(`/api/profile/${address.toLowerCase()}`);
+        const resp = await fetch(`/api/profile/${address.toLowerCase()}`); // update
         const raw = await resp.json();
         console.log('Profile data:', raw);
 

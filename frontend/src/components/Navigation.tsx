@@ -138,7 +138,7 @@ const NavigationSidebar: React.FC = () => {
           </VStack>
         </VStack>
       </VStack>
-      <Box position="absolute" right={0} top={0} w="1.5px" h="100vh" bg="#23262f" zIndex={200} />
+      <Box position="absolute" right={0} top={0} w="1.5px" h="100vh" bg="#23262f" zIndex={200} /> // update
     </Box>
   );
 };
