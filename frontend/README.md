@@ -21,7 +21,7 @@ A professional, real-time decentralized binary options trading platform built on
 
 ### Smart Contracts (Move)
 - `types.move`: Core data structures and types
-- `market_core.move`: Main binary options contract (market logic, events, settlement)
+- `market_core_v2.move`: Main binary options contract (market logic, events, settlement)
 - `factory.move`: Market deployment factory
 
 ### Frontend

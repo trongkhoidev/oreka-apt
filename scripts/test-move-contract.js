@@ -65,8 +65,8 @@ async function testMoveContract() {
     
     console.log(`Source files: ${sourceFiles.join(', ')}`);
     
-    // Check for key functions in market_core.move
-    const marketCorePath = path.join(sourcesDir, 'market_core.move');
+    // Check for key functions in market_core_v2.move
+    const marketCorePath = path.join(sourcesDir, 'market_core_v2.move');
     if (fs.existsSync(marketCorePath)) {
       const marketCore = fs.readFileSync(marketCorePath, 'utf8');
       
@@ -78,7 +78,7 @@ async function testMoveContract() {
         'deploy_multi_outcome_market'
       ];
       
-      console.log(`\n🔍 Checking key functions in market_core.move:`);
+      console.log(`\n🔍 Checking key functions in market_core_v2.move:`);
       keyFunctions.forEach(func => {
         const exists = marketCore.includes(`fun ${func}`) || marketCore.includes(`public fun ${func}`) || marketCore.includes(`public entry fun ${func}`);
         console.log(`  ${func}: ${exists ? '✅ Found' : '❌ Missing'}`);

@@ -1,10 +1,10 @@
-// Tests for yugo::market_core
+// Tests for yugo::market_core_v2
 #[test_only]
-module yugo::market_core_tests {
+module yugo::market_core_v2_tests {
     use aptos_framework::account;
     use aptos_framework::object;
     use aptos_framework::timestamp;
-    use yugo::market_core;
+    use yugo::market_core_v2;
     use yugo::test_helpers;
     use std::vector;
     // use std::string; // unused
@@ -20,10 +20,10 @@ module yugo::market_core_tests {
 
     /// Helper: get last market address from registry
     fun get_last_market_addr(): address {
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         let n = vector::length(&markets);
         let market_info = *vector::borrow(&markets, n - 1);
-        market_core::get_market_address(&market_info)
+        market_core_v2::get_market_address(&market_info)
     }
 
     #[test]
@@ -37,7 +37,7 @@ module yugo::market_core_tests {
         let bidding_start_time = now + 100;
         let bidding_end_time = now + 200;
         let maturity_time = now + 300;
-        market_core::create_market(
+        market_core_v2::create_market(
             &owner,
             price_feed_id,
             strike_price,
@@ -47,8 +47,8 @@ module yugo::market_core_tests {
             maturity_time
         );
         let market_addr = get_last_market_addr();
-        let market_obj = object::address_to_object<market_core::Market>(market_addr);
-        assert!(market_core::get_phase(market_obj) == 0, 1); // Pending
+        let market_obj = object::address_to_object<market_core_v2::Market>(market_addr);
+        assert!(market_core_v2::get_phase(market_obj) == 0, 1); // Pending
     }
 
     #[test]
@@ -62,7 +62,7 @@ module yugo::market_core_tests {
         let bidding_start_time = now;
         let bidding_end_time = now + 100;
         let maturity_time = now + 200;
-        market_core::create_market(
+        market_core_v2::create_market(
             &owner,
             price_feed_id,
             strike_price,
@@ -72,13 +72,13 @@ module yugo::market_core_tests {
             maturity_time
         );
         let market_addr = get_last_market_addr();
-        let market_obj = object::address_to_object<market_core::Market>(market_addr);
-        assert!(market_core::get_phase(market_obj) == 1, 2); // Bidding
-        market_core::bid(&owner, market_addr, true, 100, now);
+        let market_obj = object::address_to_object<market_core_v2::Market>(market_addr);
+        assert!(market_core_v2::get_phase(market_obj) == 1, 2); // Bidding
+        market_core_v2::bid(&owner, market_addr, true, 100, now);
     }
 
     #[test]
-    #[expected_failure(location = yugo::market_core, abort_code = 104)] // ENOT_IN_BIDDING_PHASE
+    #[expected_failure(location = yugo::market_core_v2, abort_code = 104)] // ENOT_IN_BIDDING_PHASE
     public fun test_bid_wrong_phase() {
         setup_test_environment();
         let owner = account::create_account_for_test(@yugo);
@@ -89,7 +89,7 @@ module yugo::market_core_tests {
         let bidding_start_time = now + 100;
         let bidding_end_time = now + 200;
         let maturity_time = now + 300;
-        market_core::create_market(
+        market_core_v2::create_market(
             &owner,
             price_feed_id,
             strike_price,
@@ -100,11 +100,11 @@ module yugo::market_core_tests {
         );
         let market_addr = get_last_market_addr();
         // Bidding chưa bắt đầu
-        market_core::bid(&owner, market_addr, true, 100, now);
+        market_core_v2::bid(&owner, market_addr, true, 100, now);
     }
 
     #[test]
-    #[expected_failure(location = yugo::market_core, abort_code = 109)] // EINSUFFICIENT_AMOUNT
+    #[expected_failure(location = yugo::market_core_v2, abort_code = 109)] // EINSUFFICIENT_AMOUNT
     public fun test_bid_zero_amount() {
         setup_test_environment();
         let owner = account::create_account_for_test(@yugo);
@@ -115,7 +115,7 @@ module yugo::market_core_tests {
         let bidding_start_time = now;
         let bidding_end_time = now + 100;
         let maturity_time = now + 200;
-        market_core::create_market(
+        market_core_v2::create_market(
             &owner,
             price_feed_id,
             strike_price,
@@ -125,11 +125,11 @@ module yugo::market_core_tests {
             maturity_time
         );
         let market_addr = get_last_market_addr();
-        market_core::bid(&owner, market_addr, true, 0, now);
+        market_core_v2::bid(&owner, market_addr, true, 0, now);
     }
 
     #[test]
-    #[expected_failure(location = yugo::market_core, abort_code = 105)] // EMARKET_NOT_RESOLVED
+    #[expected_failure(location = yugo::market_core_v2, abort_code = 105)] // EMARKET_NOT_RESOLVED
     public fun test_claim_before_resolve() {
         setup_test_environment();
         let owner = account::create_account_for_test(@yugo);
@@ -140,7 +140,7 @@ module yugo::market_core_tests {
         let bidding_start_time = now;
         let bidding_end_time = now + 100;
         let maturity_time = now + 200;
-        market_core::create_market(
+        market_core_v2::create_market(
             &owner,
             price_feed_id,
             strike_price,
@@ -150,8 +150,8 @@ module yugo::market_core_tests {
             maturity_time
         );
         let market_addr = get_last_market_addr();
-        market_core::bid(&owner, market_addr, true, 100, now);
-        market_core::claim(&owner, market_addr);
+        market_core_v2::bid(&owner, market_addr, true, 100, now);
+        market_core_v2::claim(&owner, market_addr);
     }
 
     #[test]
@@ -165,7 +165,7 @@ module yugo::market_core_tests {
         let bidding_start_time = now;
         let bidding_end_time = now + 100;
         let maturity_time = now + 200;
-        market_core::create_market(
+        market_core_v2::create_market(
             &owner,
             price_feed_id,
             strike_price,
@@ -175,15 +175,15 @@ module yugo::market_core_tests {
             maturity_time
         );
         let market_addr = get_last_market_addr();
-        market_core::bid(&owner, market_addr, true, 100, now);
+        market_core_v2::bid(&owner, market_addr, true, 100, now);
         // Advance time to after maturity_time
         test_helpers::advance_time(maturity_time + 1 - now);
-        market_core::test_resolve_market_with_price(&owner, market_addr, 51000); // result=0: LONG win
-        market_core::claim(&owner, market_addr);
+        market_core_v2::test_resolve_market_with_price(&owner, market_addr, 51000); // result=0: LONG win
+        market_core_v2::claim(&owner, market_addr);
     }
 
     #[test]
-    #[expected_failure(location = yugo::market_core, abort_code = 108)] // EALREADY_CLAIMED
+    #[expected_failure(location = yugo::market_core_v2, abort_code = 108)] // EALREADY_CLAIMED
     public fun test_owner_withdraw_fee() {
         setup_test_environment();
         let owner = account::create_account_for_test(@yugo);
@@ -195,7 +195,7 @@ module yugo::market_core_tests {
         let bidding_start_time = now;
         let bidding_end_time = now + 100;
         let maturity_time = now + 200;
-        market_core::create_market(
+        market_core_v2::create_market(
             &owner,
             price_feed_id,
             strike_price,
@@ -205,17 +205,17 @@ module yugo::market_core_tests {
             maturity_time
         );
         let market_addr = get_last_market_addr();
-        market_core::bid(&user, market_addr, true, 100, now);
+        market_core_v2::bid(&user, market_addr, true, 100, now);
         // Advance time to after maturity_time
         test_helpers::advance_time(maturity_time + 1 - now);
-        market_core::test_resolve_market_with_price(&owner, market_addr, 51000); // result=0: LONG win
+        market_core_v2::test_resolve_market_with_price(&owner, market_addr, 51000); // result=0: LONG win
         // Owner withdraw fee
-        let market_obj = object::address_to_object<market_core::Market>(market_addr);
-        market_core::withdraw_fee(&owner, market_obj);
+        let market_obj = object::address_to_object<market_core_v2::Market>(market_addr);
+        market_core_v2::withdraw_fee(&owner, market_obj);
         // Try to withdraw fee again - should fail with EALREADY_CLAIMED
-        market_core::withdraw_fee(&owner, market_obj);
+        market_core_v2::withdraw_fee(&owner, market_obj);
         // User claim, chỉ nhận được 90 APT (sau khi trừ fee)
-        market_core::claim(&user, market_addr);
+        market_core_v2::claim(&user, market_addr);
     }
 
     #[test]
@@ -230,7 +230,7 @@ module yugo::market_core_tests {
         let bidding_start_time = now;
         let bidding_end_time = now + 100;
         let maturity_time = now + 200;
-        market_core::create_market(
+        market_core_v2::create_market(
             &owner,
             price_feed_id,
             strike_price,
@@ -240,12 +240,12 @@ module yugo::market_core_tests {
             maturity_time
         );
         let market_addr = get_last_market_addr();
-        market_core::bid(&user, market_addr, true, 100, now);
+        market_core_v2::bid(&user, market_addr, true, 100, now);
         // Advance time to after maturity_time
         test_helpers::advance_time(maturity_time + 1 - now);
         // User (không phải owner) resolve được market
-        market_core::test_resolve_market_with_price(&user, market_addr, 51000); // result=0: LONG win
+        market_core_v2::test_resolve_market_with_price(&user, market_addr, 51000); // result=0: LONG win
         // Sau đó user hoặc owner đều claim được
-        market_core::claim(&user, market_addr);
+        market_core_v2::claim(&user, market_addr);
     }
 } 

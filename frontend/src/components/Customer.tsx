@@ -17,7 +17,7 @@ import ChartDataPrefetchService from '../services/ChartDataPrefetchService';
 import { getMarketBidEvents, buildPositionTimeline, buildMultiOutcomePositionTimeline } from '../services/positionHistoryService';
 import { getStandardPairName } from '../config/pairMapping';
 import EventListenerService from '../services/EventListenerService';
-import { normalizePriceFeedId, fetchAndValidateVAA, base64ToBytes } from '../utils/pythUtils';
+import { normalizePriceFeedId, fetchLatestVAA, base64ToBytes } from '../utils/pythUtils';
 
 enum Side { Long, Short }
 enum Phase { Pending = 0, Bidding = 1, Maturity = 2 }
@@ -639,61 +639,126 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
     setIsSubmitting(true);
     setPrevMarket(market);
     try {
-      // Normalize price_feed_id from market
-      const priceFeedId = normalizePriceFeedId(market.price_feed_id);
-      if (!priceFeedId) {
-        throw new Error('Invalid or missing price_feed_id in market data');
+      console.log('[handleResolve] Starting market resolution...', {
+        marketAddress: contractAddress,
+        marketType: market.market_type,
+        isResolved: market.is_resolved,
+        maturityTime: market.maturity_time,
+        currentTime: Math.floor(Date.now() / 1000)
+      });
+
+      // Validate market can be resolved
+      if (market.is_resolved) {
+        throw new Error('Market is already resolved');
       }
+
+      const now = Math.floor(Date.now() / 1000);
+      const maturityTime = Number(market.maturity_time);
+      if (now < maturityTime) {
+        throw new Error(`Market has not reached maturity time yet. Wait ${maturityTime - now} seconds.`);
+      }
+
+      // get price_feed_id from market and normalize it
+      let priceFeedId = market.price_feed_id;
+      console.log('[handleResolve] Raw price_feed_id from market:', {
+        priceFeedId,
+        type: typeof priceFeedId,
+        isArray: Array.isArray(priceFeedId)
+      });
+
+      // Normalize price_feed_id to hex string (64 chars, no 0x prefix)
+      if (Array.isArray(priceFeedId)) {
+        priceFeedId = priceFeedId.map((b: number) => b.toString(16).padStart(2, '0')).join('');
+      } else if (typeof priceFeedId === 'string') {
+        if (priceFeedId.startsWith('0x')) {
+          priceFeedId = priceFeedId.slice(2);
+        }
+      } else {
+        throw new Error('Invalid price_feed_id format from market');
+      }
+
+      if (typeof priceFeedId !== 'string' || priceFeedId.length !== 64) {
+        throw new Error(`Invalid price_feed_id for Hermes: expected 64 hex chars, got ${priceFeedId?.length || 0} chars`);
+      }
+
+      console.log('[handleResolve] Normalized price_feed_id:', priceFeedId);
+
+      // call Hermes API to get latest VAA (pyth_price_update)
+      const url = `https://hermes.pyth.network/api/latest_vaas?ids[]=${priceFeedId}`;
+      console.log('[handleResolve] Fetching from Hermes URL:', url);
       
-      console.log('[handleResolve] Using price_feed_id:', priceFeedId);
+      const res = await fetch(url);
+      const responseText = await res.text();
+      console.log('[handleResolve] Hermes response status:', res.status, 'OK:', res.ok);
       
-      // Fetch and validate VAA data from Hermes API
-      const vaas = await fetchAndValidateVAA(priceFeedId);
-      console.log('[handleResolve] Retrieved and validated VAAs:', vaas.length, 'first VAA length:', vaas[0]?.length);
+      if (!res.ok) {
+        console.error('[handleResolve] Hermes API error:', {
+          status: res.status,
+          statusText: res.statusText,
+          response: responseText
+        });
+        throw new Error(`Failed to fetch Pyth price update: ${res.status} ${res.statusText}`);
+      }
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('[handleResolve] Failed to parse Hermes response JSON:', e, responseText);
+        throw new Error('Hermes returned invalid JSON response');
+      }
+     
+      let vaas: string[] = [];
+      if (Array.isArray(data)) {
+        vaas = data;
+      } else if (data && Array.isArray(data.vaas)) {
+        vaas = data.vaas;
+      } else {
+        console.error('[handleResolve] Unexpected Hermes response format:', data);
+        throw new Error('Hermes response does not contain VAA data');
+      }
+
+      if (vaas.length === 0) {
+        throw new Error('No VAA data received from Hermes for the given price feed ID');
+      }
+
+      console.log('[handleResolve] VAAs received:', {
+        count: vaas.length,
+        firstVAALength: vaas[0]?.length,
+        firstVAAPreview: vaas[0]?.slice(0, 50) + '...'
+      });
 
       const pythPriceUpdate: number[][] = vaas.map((vaa, idx) => {
-        const bytes = base64ToBytes(vaa);
-        console.log(`[handleResolve] VAA[${idx}] bytes length:`, bytes.length, 'first:', bytes.slice(0, 8), 'last:', bytes.slice(-8));
-        
-        // Log VAA header analysis
-        if (bytes.length >= 4) {
-          const header = bytes.slice(0, 4);
-          const headerHex = header.map(b => b.toString(16).padStart(2, '0')).join(' ');
-          console.log(`[handleResolve] VAA[${idx}] header:`, header, 'hex:', headerHex);
-          
-          // Check for PNAU header
-          if (header[0] === 80 && header[1] === 78 && header[2] === 65 && header[3] === 85) {
-            console.log(`[handleResolve] VAA[${idx}] has valid PNAU header`);
-          } else {
-            console.warn(`[handleResolve] VAA[${idx}] has unexpected header:`, header);
-          }
+        try {
+          const bytes = base64ToBytes(vaa);
+          console.log(`[handleResolve] VAA[${idx}] converted to bytes:`, {
+            originalLength: vaa.length,
+            bytesLength: bytes.length,
+            firstBytes: bytes.slice(0, 8),
+            lastBytes: bytes.slice(-8)
+          });
+          return bytes;
+        } catch (error) {
+          console.error(`[handleResolve] Failed to convert VAA[${idx}] to bytes:`, error);
+          throw new Error(`Invalid VAA format at index ${idx}`);
         }
-        
-        // Ensure all bytes are numbers, not strings
-        const normalizedBytes = bytes.map(byte => {
-          const num = Number(byte);
-          if (isNaN(num) || num < 0 || num > 255) {
-            console.warn(`[handleResolve] Invalid byte value:`, byte, 'converted to:', num);
-            return 0;
-          }
-          return num;
-        });
-        
-        console.log(`[handleResolve] VAA[${idx}] normalized length:`, normalizedBytes.length, 'first 8:', normalizedBytes.slice(0, 8));
-        return normalizedBytes;
       });
-      console.log('[handleResolve] contractAddress:', contractAddress);
-      console.log('[handleResolve] pythPriceUpdate count:', pythPriceUpdate.length);
-      pythPriceUpdate.forEach((arr, idx) => {
-        console.log(`[handleResolve] pythPriceUpdate[${idx}] length:`, arr.length, 'first:', arr.slice(0, 8), 'last:', arr.slice(-8));
-      });
-      console.log('[handleResolve] typeof pythPriceUpdate:', typeof pythPriceUpdate, 'isArray:', Array.isArray(pythPriceUpdate));
+
       const totalBytes = pythPriceUpdate.reduce((sum, arr) => sum + arr.length, 0);
-      console.log('[handleResolve] total bytes:', totalBytes);
+      console.log('[handleResolve] Pyth price update prepared:', {
+        updateCount: pythPriceUpdate.length,
+        totalBytes,
+        avgBytesPerUpdate: Math.round(totalBytes / pythPriceUpdate.length)
+      });
+
       try {
+        console.log('[handleResolve] Submitting transaction to resolve market...');
         await resolveMarket(signAndSubmitTransaction, contractAddress, pythPriceUpdate);
-        console.log('[handleResolve] resolveMarket SUCCESS');
+        console.log('[handleResolve] Market resolution transaction submitted successfully');
+        
         toast({ title: 'Market resolve transaction submitted', status: 'success' });
+        
+        // Refresh market data
         const details = await getMarketDetails(contractAddress);
         setMarket(details);
         await fetchMarketData();
@@ -701,93 +766,24 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
         setWaitingForResolve(true);
         clearLocalCache(); // Clear cache after successful resolve
       } catch (err) {
-        console.error('[handleResolve] resolveMarket ERROR:', err);
-        
-        // Check if it's a VAA version error or simulation error and try with different data
-        if (err instanceof Error && (err.message.includes('E_WRONG_VERSION') || err.message.includes('Simulation error') || err.message.includes('Generic error'))) {
-          console.log('[handleResolve] VAA/simulation error detected, trying alternative approach...');
-          
-          try {
-            // Try with a fresh VAA fetch (maybe the previous one was stale)
-            const freshVaas = await fetchAndValidateVAA(priceFeedId);
-            
-            // Check VAA size and try to optimize if too large
-            let freshPythPriceUpdate: number[][] = freshVaas.map((vaa, idx) => {
-              const bytes = base64ToBytes(vaa);
-              const normalizedBytes = bytes.map(byte => {
-                const num = Number(byte);
-                return isNaN(num) || num < 0 || num > 255 ? 0 : num;
-              });
-              return normalizedBytes;
-            });
-            
-            // If VAA is too large, try to truncate it (keep first 1000 bytes for safety)
-            const totalBytes = freshPythPriceUpdate.reduce((sum, chunk) => sum + chunk.length, 0);
-            if (totalBytes > 1000) {
-              console.log(`[handleResolve] VAA too large (${totalBytes} bytes), truncating to 1000 bytes...`);
-              freshPythPriceUpdate = freshPythPriceUpdate.map(chunk => chunk.slice(0, 1000));
-            }
-            
-            console.log('[handleResolve] Retrying with fresh VAA data...', {
-              originalSize: totalBytes,
-              newSize: freshPythPriceUpdate.reduce((sum, chunk) => sum + chunk.length, 0),
-              chunks: freshPythPriceUpdate.length
-            });
-            
-            await resolveMarket(signAndSubmitTransaction, contractAddress, freshPythPriceUpdate);
-            console.log('[handleResolve] resolveMarket SUCCESS on retry');
-            toast({ title: 'Market resolve transaction submitted (retry)', status: 'success' });
-            
-            const details = await getMarketDetails(contractAddress);
-            setMarket(details);
-            await fetchMarketData();
-            await fetchUserPositions();
-            setWaitingForResolve(true);
-            clearLocalCache();
-            return; // Success on retry
-          } catch (retryErr) {
-            console.error('[handleResolve] Retry also failed:', retryErr);
-            
-            // Last resort: try with minimal VAA data
-            if (retryErr instanceof Error && (retryErr.message.includes('Simulation error') || retryErr.message.includes('Generic error'))) {
-              console.log('[handleResolve] Trying with minimal VAA data as last resort...');
-              
-              try {
-                // Create minimal VAA with just PNAU header
-                const minimalVaa = [80, 78, 65, 85, 1, 0, 0, 0]; // PNAU + version
-                const minimalPayload = [minimalVaa];
-                
-                console.log('[handleResolve] Using minimal VAA:', minimalVaa);
-                await resolveMarket(signAndSubmitTransaction, contractAddress, minimalPayload);
-                console.log('[handleResolve] resolveMarket SUCCESS with minimal VAA');
-                toast({ title: 'Market resolve transaction submitted (minimal VAA)', status: 'success' });
-                
-                const details = await getMarketDetails(contractAddress);
-                setMarket(details);
-                await fetchMarketData();
-                await fetchUserPositions();
-                setWaitingForResolve(true);
-                clearLocalCache();
-                return; // Success with minimal VAA
-              } catch (minimalErr) {
-                console.error('[handleResolve] Minimal VAA also failed:', minimalErr);
-                throw new Error(`Market resolution failed: ${err.message.includes('Simulation error') ? 'Simulation error' : 'VAA error'}. Please try again later. Original error: ${err.message}`);
-              }
-            }
-            
-            throw new Error(`Market resolution failed: ${err.message.includes('Simulation error') ? 'Simulation error' : 'VAA error'}. Please try again later. Original error: ${err.message}`);
-          }
-        }
-        
+        console.error('[handleResolve] Market resolution transaction failed:', err);
         throw err;
       }
     } catch (error: unknown) {
-      console.error('[handleResolve] Resolve error:', error);
-      toast({ title: 'Resolve failed', description: error instanceof Error ? error.message : 'An error occurred', status: 'error' });
+      console.error('[handleResolve] Market resolution error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+      toast({ 
+        title: 'Market resolution failed', 
+        description: errorMessage, 
+        status: 'error',
+        duration: 8000,
+        isClosable: true
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
+
 
   const handleClaim = async () => {
     if (!signAndSubmitTransaction) return;
@@ -1164,4 +1160,4 @@ const Customer: React.FC<CustomerProps> = ({ contractAddress }) => {
   );
 };
 
-export default Customer; 
+export default Customer;

@@ -190,7 +190,7 @@ MULTISIG_ACCOUNTS="0x123...,0x456...,0x789..."
 ### Core Modules
 
 - **`global_pool`**: Global liquidity pool management
-- **`market_core`**: Binary prediction markets
+- **`market_core_v2`**: Binary prediction markets
 - **`pyth_price_adapter`**: Pyth price feed integration
 - **`types`**: Shared type definitions
 

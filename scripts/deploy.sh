@@ -130,14 +130,14 @@ initialize_modules() {
     # Initialize market registry
     echo -e "${BLUE}📊 Initializing market registry...${NC}"
     aptos move run \
-        --function-id "$APTOS_PROFILE::market_core::initialize_market_registry" \
+        --function-id "$APTOS_PROFILE::market_core_v2::initialize_market_registry" \
         --profile "$APTOS_PROFILE" \
         --assume-yes
     
     # Initialize market config
     echo -e "${BLUE}⚙️  Initializing market config...${NC}"
     aptos move run \
-        --function-id "$APTOS_PROFILE::market_core::initialize_market_config" \
+        --function-id "$APTOS_PROFILE::market_core_v2::initialize_market_config" \
         --args address:"$APTOS_PROFILE" \
         --profile "$APTOS_PROFILE" \
         --assume-yes
@@ -150,7 +150,7 @@ verify_deployment() {
     echo -e "${BLUE}🔍 Verifying deployment...${NC}"
     
     # Check if modules are published
-    local modules=("global_pool" "market_core" "pyth_price_adapter" "types")
+    local modules=("global_pool" "market_core_v2" "pyth_price_adapter" "types")
     
     for module in "${modules[@]}"; do
         echo -e "${BLUE}Checking module: $module${NC}"
@@ -186,14 +186,14 @@ save_deployment_info() {
   "timestamp": "$timestamp",
   "modules": {
     "global_pool": "$APTOS_PROFILE::global_pool",
-    "market_core": "$APTOS_PROFILE::market_core",
+    "market_core_v2": "$APTOS_PROFILE::market_core_v2",
     "pyth_price_adapter": "$APTOS_PROFILE::pyth_price_adapter",
     "types": "$APTOS_PROFILE::types"
   },
   "initialized_resources": [
     "$APTOS_PROFILE::global_pool::GlobalPool",
-    "$APTOS_PROFILE::market_core::MarketRegistry",
-    "$APTOS_PROFILE::market_core::MarketConfig"
+    "$APTOS_PROFILE::market_core_v2::MarketRegistry",
+    "$APTOS_PROFILE::market_core_v2::MarketConfig"
   ]
 }
 EOF
@@ -224,7 +224,7 @@ main() {
     echo -e "${BLUE}📋 Deployment Summary:${NC}"
     echo -e "${BLUE}  Network: $NETWORK${NC}"
     echo -e "${BLUE}  Deployer: $APTOS_PROFILE${NC}"
-    echo -e "${BLUE}  Modules: global_pool, market_core, pyth_price_adapter, types${NC}"
+    echo -e "${BLUE}  Modules: global_pool, market_core_v2, pyth_price_adapter, types${NC}"
     echo -e "${BLUE}  Resources: GlobalPool, MarketRegistry, MarketConfig${NC}"
 }
 

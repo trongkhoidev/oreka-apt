@@ -20,7 +20,7 @@ The user requested to:
    - Convert base64 to byte arrays
    - Update Pyth price feeds on-chain
    - Get final price and resolve market
-3. **Move Contract Logic**: The `market_core.move` and `pyth_price_adapter.move` are well-structured
+3. **Move Contract Logic**: The `market_core_v2.move` and `pyth_price_adapter.move` are well-structured
 4. **Frontend Integration**: Proper VAA fetching and base64 decoding
 
 **⚠️ Areas for Improvement:**
@@ -34,7 +34,7 @@ The user requested to:
 
 **Move Contract (Sources):**
 - `pyth_price_adapter.move`: Clean adapter for Pyth price fetching
-- `market_core.move`: Proper market resolution with Pyth integration
+- `market_core_v2.move`: Proper market resolution with Pyth integration
 - Follows Aptos framework patterns correctly
 
 **Frontend Implementation:**

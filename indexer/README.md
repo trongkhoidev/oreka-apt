@@ -55,8 +55,8 @@ PG_URL=postgres://user:password@localhost:5432/oreka
 APTOS_INDEXER=https://indexer.mainnet.aptoslabs.com/v1/graphql
 
 # Module Configuration
-MODULE_ADDR=0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d
-MODULE_NAME=market_core
+MODULE_ADDR=0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d
+MODULE_NAME=market_core_v2
 
 # Indexer Settings
 BATCH_SIZE=1000

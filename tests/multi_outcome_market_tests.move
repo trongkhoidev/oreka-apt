@@ -7,7 +7,7 @@ module yugo::multi_outcome_market_tests {
     use aptos_framework::timestamp;
     use aptos_framework::account;
     
-    use yugo::market_core;
+    use yugo::market_core_v2;
     use yugo::types::{Self, PriceRange};
 
     // Test accounts
@@ -22,7 +22,7 @@ module yugo::multi_outcome_market_tests {
         let user2 = account::create_account_for_test(USER2);
         
         // Initialize market registry
-        market_core::initialize_market_registry(&admin);
+        market_core_v2::initialize_market_registry(&admin);
         
         // Mint coins for testing
         coin::register<AptosCoin>(&user1);
@@ -61,7 +61,7 @@ module yugo::multi_outcome_market_tests {
         let maturity_time = timestamp::now_seconds() + 7200;
         
         // Create multi-outcome market
-        market_core::create_multi_outcome_market(
+        market_core_v2::create_multi_outcome_market(
             &admin,
             price_feed_id,
             create_test_price_ranges(),
@@ -72,7 +72,7 @@ module yugo::multi_outcome_market_tests {
         );
         
         // Verify market was created
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         assert!(vector::length(&markets) == 1, 0);
     }
 
@@ -88,7 +88,7 @@ module yugo::multi_outcome_market_tests {
         let maturity_time = timestamp::now_seconds() + 7200;
         
         // Create multi-outcome market
-        market_core::create_multi_outcome_market(
+        market_core_v2::create_multi_outcome_market(
             &admin,
             price_feed_id,
             create_test_price_ranges(),
@@ -98,15 +98,15 @@ module yugo::multi_outcome_market_tests {
             maturity_time
         );
         
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         let market_info = *vector::borrow(&markets, 0);
-        let market_addr = market_core::get_market_address(&market_info);
+        let market_addr = market_core_v2::get_market_address(&market_info);
         
         // Fast forward to bidding phase
         timestamp::fast_forward_seconds(120);
         
         // User1 bids on outcome 0 (Range C: < $100)
-        market_core::bid_multi_outcome(
+        market_core_v2::bid_multi_outcome(
             &user1,
             market_addr,
             0, // outcome index
@@ -115,7 +115,7 @@ module yugo::multi_outcome_market_tests {
         );
         
         // User2 bids on outcome 1 (Range A: $100-$150)
-        market_core::bid_multi_outcome(
+        market_core_v2::bid_multi_outcome(
             &user2,
             market_addr,
             1, // outcome index
@@ -124,8 +124,8 @@ module yugo::multi_outcome_market_tests {
         );
         
         // Verify bids
-        let user1_position = market_core::get_user_multi_outcome_position(USER1, market_addr);
-        let user2_position = market_core::get_user_multi_outcome_position(USER2, market_addr);
+        let user1_position = market_core_v2::get_user_multi_outcome_position(USER1, market_addr);
+        let user2_position = market_core_v2::get_user_multi_outcome_position(USER2, market_addr);
         
         assert!(*vector::borrow(&user1_position, 0) == 1000, 1);
         assert!(*vector::borrow(&user2_position, 1) == 2000, 2);
@@ -143,7 +143,7 @@ module yugo::multi_outcome_market_tests {
         let maturity_time = timestamp::now_seconds() + 7200;
         
         // Create binary market using old function
-        market_core::create_market(
+        market_core_v2::create_market(
             &admin,
             price_feed_id,
             strike_price,
@@ -153,17 +153,17 @@ module yugo::multi_outcome_market_tests {
             maturity_time
         );
         
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         assert!(vector::length(&markets) == 1, 0);
         
         let market_info = *vector::borrow(&markets, 0);
-        let market_addr = market_core::get_market_address(&market_info);
+        let market_addr = market_core_v2::get_market_address(&market_info);
         
         // Fast forward to bidding phase
         timestamp::fast_forward_seconds(120);
         
         // User1 bids LONG
-        market_core::bid(
+        market_core_v2::bid(
             &user1,
             market_addr,
             true, // LONG
@@ -172,7 +172,7 @@ module yugo::multi_outcome_market_tests {
         );
         
         // User2 bids SHORT
-        market_core::bid(
+        market_core_v2::bid(
             &user2,
             market_addr,
             false, // SHORT
@@ -181,8 +181,8 @@ module yugo::multi_outcome_market_tests {
         );
         
         // Verify bids
-        let (user1_long, user1_short) = market_core::get_user_position(USER1, market_addr);
-        let (user2_long, user2_short) = market_core::get_user_position(USER2, market_addr);
+        let (user1_long, user1_short) = market_core_v2::get_user_position(USER1, market_addr);
+        let (user2_long, user2_short) = market_core_v2::get_user_position(USER2, market_addr);
         
         assert!(user1_long == 1000 && user1_short == 0, 1);
         assert!(user2_long == 0 && user2_short == 2000, 2);

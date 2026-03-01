@@ -1,4 +1,3 @@
-
 export interface BidEvent {
   data: {
     user: string;
@@ -24,7 +23,7 @@ export interface BidEvent {
 export async function getMarketBidEvents(marketAddress: string): Promise<BidEvent[]> {
   try {
     // Use the correct contract address
-    const contractAddress = "0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d";
+    const contractAddress = "0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d";
     const url = `https://fullnode.mainnet.aptoslabs.com/v1/accounts/${contractAddress}/events/${contractAddress}::market_core_v2::MarketRegistry/bid_events`;
     
     console.log('[getMarketBidEvents] Fetching from URL:', url);
@@ -222,4 +221,4 @@ export function buildMultiOutcomePositionTimeline(
   }
 
   return filtered;
-} 
+}

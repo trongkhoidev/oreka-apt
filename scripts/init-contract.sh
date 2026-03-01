@@ -21,7 +21,7 @@ if ! aptos account list | grep -q "oreka_mainnet"; then
 fi
 
 # Use the correct account address
-ACCOUNT_ADDRESS="0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d"
+ACCOUNT_ADDRESS="0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d"
 echo -e "${BLUE}📋 Account Address: $ACCOUNT_ADDRESS${NC}"
 
 # Step 1: Initialize market registry

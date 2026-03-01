@@ -15,13 +15,13 @@ aptos move run \
 
 echo "Init MarketRegistry..."
 aptos move run \
-  --function-id ${YUGO}::market_core::initialize_market_registry \
+  --function-id ${YUGO}::market_core_v2::initialize_market_registry \
   --profile oreka_testnet \
   --assume-yes
 
 echo "Init MarketConfig..."
 aptos move run \
-  --function-id ${YUGO}::market_core::initialize_market_config \
+  --function-id ${YUGO}::market_core_v2::initialize_market_config \
   --args address:${YUGO} \
   --profile oreka_testnet \
   --assume-yes

@@ -7,7 +7,7 @@ module yugo::global_pool_tests {
     use aptos_framework::timestamp;
     use aptos_framework::account;
     
-    use yugo::market_core;
+    use yugo::market_core_v2;
     use yugo::global_pool;
     use yugo::test_helpers;
 
@@ -45,7 +45,7 @@ module yugo::global_pool_tests {
         let maturity_time = timestamp::now_seconds() + 7200;
         
         // Create binary market
-        market_core::create_market(
+        market_core_v2::create_market(
             admin,
             price_feed_id,
             strike_price,
@@ -55,9 +55,9 @@ module yugo::global_pool_tests {
             maturity_time
         );
         
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         let market_info = *vector::borrow(&markets, 0);
-        market_core::get_market_address(&market_info)
+        market_core_v2::get_market_address(&market_info)
     }
 
     // T1. Inject → Resolve Winner
@@ -74,26 +74,26 @@ module yugo::global_pool_tests {
         timestamp::fast_forward_seconds(120);
         
         // User1 bids LONG 400 APT
-        market_core::bid(&user1, market_addr, true, 400, timestamp::now_seconds());
+        market_core_v2::bid(&user1, market_addr, true, 400, timestamp::now_seconds());
         
         // User2 bids SHORT 600 APT  
-        market_core::bid(&user2, market_addr, false, 600, timestamp::now_seconds());
+        market_core_v2::bid(&user2, market_addr, false, 600, timestamp::now_seconds());
         
         // Admin injects 300 APT into market
         let injection_amount = 300;
-        market_core::admin_inject_to_market(&admin, market_addr, injection_amount);
+        market_core_v2::admin_inject_to_market(&admin, market_addr, injection_amount);
         
         // Fast forward to maturity
         timestamp::fast_forward_seconds(7200);
         
         // Resolve with price 60000 (LONG wins)
-        market_core::test_resolve_market_with_price(&admin, market_addr, 60000);
+        market_core_v2::test_resolve_market_with_price(&admin, market_addr, 60000);
         
         // Verify market state
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         let market_info = *vector::borrow(&markets, 0);
-        assert!(!market_core::get_is_no_winner(&market_info), 1);
-        assert!(market_core::get_bonus_locked(&market_info), 2);
+        assert!(!market_core_v2::get_is_no_winner(&market_info), 1);
+        assert!(market_core_v2::get_bonus_locked(&market_info), 2);
         
         // User1 should be able to claim with boost
         // Expected: user_win=400, W=400, L=600, I=300, distributable=900
@@ -123,26 +123,26 @@ module yugo::global_pool_tests {
         timestamp::fast_forward_seconds(120);
         
         // User1 bids LONG 400 APT
-        market_core::bid(&user1, market_addr, true, 400, timestamp::now_seconds());
+        market_core_v2::bid(&user1, market_addr, true, 400, timestamp::now_seconds());
         
         // User2 bids SHORT 600 APT
-        market_core::bid(&user2, market_addr, false, 600, timestamp::now_seconds());
+        market_core_v2::bid(&user2, market_addr, false, 600, timestamp::now_seconds());
         
         // Admin injects 300 APT into market
         let injection_amount = 300;
-        market_core::admin_inject_to_market(&admin, market_addr, injection_amount);
+        market_core_v2::admin_inject_to_market(&admin, market_addr, injection_amount);
         
         // Fast forward to maturity
         timestamp::fast_forward_seconds(7200);
         
         // Resolve with price exactly at strike (no winner - this should trigger no-winner logic)
         // For this test, we'll use a price that results in no winner
-        market_core::test_resolve_market_with_price(&admin, market_addr, 50000);
+        market_core_v2::test_resolve_market_with_price(&admin, market_addr, 50000);
         
         // Verify market state
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         let market_info = *vector::borrow(&markets, 0);
-        assert!(market_core::get_is_no_winner(&market_info), 1);
+        assert!(market_core_v2::get_is_no_winner(&market_info), 1);
         
         // Verify global pool received the funds
         let admin_addr = global_pool::get_global_pool_admin(ADMIN);
@@ -166,15 +166,15 @@ module yugo::global_pool_tests {
         timestamp::fast_forward_seconds(120);
         
         // Admin injects 500 APT
-        market_core::admin_inject_to_market(&admin, market_addr, 500);
+        market_core_v2::admin_inject_to_market(&admin, market_addr, 500);
         
         // Cancel 200 APT before lock
-        market_core::admin_cancel_injection(&admin, market_addr, 200);
+        market_core_v2::admin_cancel_injection(&admin, market_addr, 200);
         
         // Verify market still has 300 APT injection
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         let market_info = *vector::borrow(&markets, 0);
-        assert!(market_core::get_bonus_injected(&market_info) == 300, 1);
+        assert!(market_core_v2::get_bonus_injected(&market_info) == 300, 1);
         
         // Verify global pool state
         let admin_addr = global_pool::get_global_pool_admin(ADMIN);
@@ -196,9 +196,9 @@ module yugo::global_pool_tests {
         timestamp::fast_forward_seconds(120);
         
         // Multiple injections
-        market_core::admin_inject_to_market(&admin, market_addr, 100);
-        market_core::admin_inject_to_market(&admin, market_addr, 150);
-        market_core::admin_inject_to_market(&admin, market_addr, 50);
+        market_core_v2::admin_inject_to_market(&admin, market_addr, 100);
+        market_core_v2::admin_inject_to_market(&admin, market_addr, 150);
+        market_core_v2::admin_inject_to_market(&admin, market_addr, 50);
         
         // Fast forward past bidding end (lock time)
         timestamp::fast_forward_seconds(3600);
@@ -211,13 +211,13 @@ module yugo::global_pool_tests {
         timestamp::fast_forward_seconds(3600); // Total: 7200 seconds from start
         
         // Resolve market
-        market_core::test_resolve_market_with_price(&admin, market_addr, 60000);
+        market_core_v2::test_resolve_market_with_price(&admin, market_addr, 60000);
         
         // Verify total injection was 300
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         let market_info = *vector::borrow(&markets, 0);
-        assert!(market_core::get_bonus_injected(&market_info) == 300, 1);
-        assert!(market_core::get_bonus_locked(&market_info), 2);
+        assert!(market_core_v2::get_bonus_injected(&market_info) == 300, 1);
+        assert!(market_core_v2::get_bonus_locked(&market_info), 2);
     }
 
     // T5. Rounding/dust handling
@@ -234,25 +234,25 @@ module yugo::global_pool_tests {
         timestamp::fast_forward_seconds(120);
         
         // User1 bids LONG 333 APT (creates dust when calculating boost)
-        market_core::bid(&user1, market_addr, true, 333, timestamp::now_seconds());
+        market_core_v2::bid(&user1, market_addr, true, 333, timestamp::now_seconds());
         
         // User2 bids SHORT 667 APT
-        market_core::bid(&user2, market_addr, false, 667, timestamp::now_seconds());
+        market_core_v2::bid(&user2, market_addr, false, 667, timestamp::now_seconds());
         
         // Admin injects 100 APT
-        market_core::admin_inject_to_market(&admin, market_addr, 100);
+        market_core_v2::admin_inject_to_market(&admin, market_addr, 100);
         
         // Fast forward to maturity
         timestamp::fast_forward_seconds(7200);
         
         // Resolve with LONG winning
-        market_core::test_resolve_market_with_price(&admin, market_addr, 60000);
+        market_core_v2::test_resolve_market_with_price(&admin, market_addr, 60000);
         
         // Verify market was resolved correctly
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         let market_info = *vector::borrow(&markets, 0);
-        assert!(!market_core::get_is_no_winner(&market_info), 1);
-        assert!(market_core::get_bonus_locked(&market_info), 2);
+        assert!(!market_core_v2::get_is_no_winner(&market_info), 1);
+        assert!(market_core_v2::get_bonus_locked(&market_info), 2);
         
         // Note: Claim functionality requires proper fund distribution in resolution
         // which is not implemented in the test resolution function
@@ -300,20 +300,20 @@ module yugo::global_pool_tests {
         timestamp::fast_forward_seconds(120);
         
         // User1 bids 1000 APT
-        market_core::bid(&user1, market_addr, true, 1000, timestamp::now_seconds());
+        market_core_v2::bid(&user1, market_addr, true, 1000, timestamp::now_seconds());
         
         // Admin injects 500 APT
-        market_core::admin_inject_to_market(&admin, market_addr, 500);
+        market_core_v2::admin_inject_to_market(&admin, market_addr, 500);
         
         // Fast forward to maturity
         timestamp::fast_forward_seconds(7200);
         
         // Resolve
-        market_core::test_resolve_market_with_price(&admin, market_addr, 60000);
+        market_core_v2::test_resolve_market_with_price(&admin, market_addr, 60000);
         
         // Verify fee was only calculated on user pool (1000), not injection (500)
         // Expected fee = 1000 * 50 / 1000 = 50
-        let markets = market_core::get_all_markets();
+        let markets = market_core_v2::get_all_markets();
         let _market_info = *vector::borrow(&markets, 0);
         // Note: fee_at_resolve is not exposed in MarketInfo, but we can verify through other means
         // The key is that injection doesn't affect fee calculation

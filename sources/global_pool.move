@@ -1,4 +1,4 @@
-module yugo::global_pool_v2 {
+module yugo::global_pool {
     use std::signer;
     use aptos_framework::coin::{Self, Coin};
     use aptos_framework::aptos_coin::AptosCoin;

@@ -44,7 +44,7 @@ export APTOS_FAUCET_URL="$APTOS_FAUCET_URL"
 check_modules() {
     echo -e "${BLUE}📦 Checking deployed modules...${NC}"
     
-    local modules=("global_pool" "market_core" "pyth_price_adapter" "types")
+    local modules=("global_pool" "market_core_v2" "pyth_price_adapter" "types")
     local all_found=true
     
     for module in "${modules[@]}"; do
@@ -83,8 +83,8 @@ check_resources() {
     
     local resources=(
         "$APTOS_PROFILE::global_pool::GlobalPool"
-        "$APTOS_PROFILE::market_core::MarketRegistry"
-        "$APTOS_PROFILE::market_core::MarketConfig"
+        "$APTOS_PROFILE::market_core_v2::MarketRegistry"
+        "$APTOS_PROFILE::market_core_v2::MarketConfig"
     )
     
     local all_found=true
@@ -136,7 +136,7 @@ test_functions() {
     
     # Get all markets
     if aptos move view \
-        --function-id "$APTOS_PROFILE::market_core::get_all_markets" \
+        --function-id "$APTOS_PROFILE::market_core_v2::get_all_markets" \
         --profile "$APTOS_PROFILE" > /dev/null 2>&1; then
         echo -e "${GREEN}✅ Get all markets function works${NC}"
     else
@@ -149,7 +149,7 @@ test_functions() {
     
     # Get market config
     if aptos move view \
-        --function-id "$APTOS_PROFILE::market_core::get_market_config" \
+        --function-id "$APTOS_PROFILE::market_core_v2::get_market_config" \
         --profile "$APTOS_PROFILE" > /dev/null 2>&1; then
         echo -e "${GREEN}✅ Get market config function works${NC}"
     else

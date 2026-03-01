@@ -1,4 +1,4 @@
-import { formatHuman } from '@/lib/format';
+cd import { formatHuman } from '@/lib/format';
 
 interface ProfileStatsProps {
   data: {

@@ -148,7 +148,7 @@ async function testResolveFlow(marketAddress) {
   try {
     // Step 1: Get market data
     console.log(`\n1️⃣ Fetching market data...`);
-    const marketUrl = `https://fullnode.mainnet.aptoslabs.com/v1/accounts/${marketAddress}/resource/0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d::market_core_v2::Market`;
+    const marketUrl = `https://fullnode.mainnet.aptoslabs.com/v1/accounts/${marketAddress}/resource/0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d::market_core_v2::Market`;
     
     const marketResponse = await fetch(marketUrl);
     if (!marketResponse.ok) {

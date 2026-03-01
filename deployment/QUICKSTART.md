@@ -214,7 +214,7 @@ make help
 ### Deployed Modules
 
 - **`global_pool`**: Global liquidity pool
-- **`market_core`**: Prediction markets
+- **`market_core_v2`**: Prediction markets
 - **`pyth_price_adapter`**: Price feed integration
 - **`types`**: Shared types
 

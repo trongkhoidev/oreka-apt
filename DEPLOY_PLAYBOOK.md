@@ -58,8 +58,8 @@ Named addresses used during publish:
 4. Initialize resources on mainnet
    - Run the three init calls (mirror of testnet init):
      - `global_pool::init_global_pool`
-     - `market_core::initialize_market_registry`
-     - `market_core::initialize_market_config(yugo)`
+     - `market_core_v2::initialize_market_registry`
+     - `market_core_v2::initialize_market_config(yugo)`
 5. Point Indexer + API to mainnet
    - Update `.env` in `/indexer` and `/api` (PG_URL, APTOS_INDEXER, MODULE_ADDR)
    - Re-run migrations if needed; restart indexer worker and API

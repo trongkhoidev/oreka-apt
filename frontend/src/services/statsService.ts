@@ -41,7 +41,7 @@ export class StatsService {
 
   constructor() {
     this.client = getAptosClient();
-    this.contractAddress = '0xcbe32563ed20f2dca2e4a7e917203bb3b5d6eeae2e4281328920c5524346ca41'; // Hardcoded for now
+    this.contractAddress = '0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d'; // Hardcoded for now
     this.apiBaseUrl = process.env.NEXT_PUBLIC_API || 'http://localhost:4000';
   }
 

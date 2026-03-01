@@ -29,7 +29,7 @@ function shortDayMonth(ts: number) {
   return d.getDate().toString().padStart(2, '0') + '/' + (d.getMonth() + 1).toString().padStart(2, '0');
 }
 
-const MODULE_ADDRESS = '0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d'; 
+const MODULE_ADDRESS = '0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d'; 
 const RESOLVE_EVENT_HANDLE = 'resolve_events';
 
 const MarketTimeline: React.FC<MarketTimelineProps> = ({ phase, phaseNames, market, maturity, canResolve, handleResolve, isSubmitting }) => {

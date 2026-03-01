@@ -228,7 +228,7 @@ show_status() {
     echo -e "${BLUE}  Deployer: $APTOS_PROFILE${NC}"
     
     # Check if modules are deployed
-    local modules=("global_pool" "market_core" "pyth_price_adapter" "types")
+    local modules=("global_pool" "market_core_v2" "pyth_price_adapter" "types")
     for module in "${modules[@]}"; do
         if aptos account list --profile "$APTOS_PROFILE" --query "modules" --output json | jq -r '.[] | select(.name == "'$module'")' | grep -q "$module"; then
             echo -e "${GREEN}  ✅ Module $module: Deployed${NC}"
@@ -240,8 +240,8 @@ show_status() {
     # Check if resources are initialized
     local resources=(
         "$APTOS_PROFILE::global_pool::GlobalPool"
-        "$APTOS_PROFILE::market_core::MarketRegistry"
-        "$APTOS_PROFILE::market_core::MarketConfig"
+        "$APTOS_PROFILE::market_core_v2::MarketRegistry"
+        "$APTOS_PROFILE::market_core_v2::MarketConfig"
     )
     
     for resource in "${resources[@]}"; do

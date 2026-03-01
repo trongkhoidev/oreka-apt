@@ -19,7 +19,7 @@ NETWORKS[testnet]="https://fullnode.testnet.aptoslabs.com/v1"
 NETWORKS[devnet]="https://fullnode.devnet.aptoslabs.com/v1"
 
 declare -A MODULE_ADDRESSES
-MODULE_ADDRESSES[mainnet]="0xcbe32563ed20f2dca2e4a7e917203bb3b5d6eeae2e4281328920c5524346ca41"  # Mainnet address
+MODULE_ADDRESSES[mainnet]="0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d"  # Mainnet address
 MODULE_ADDRESSES[testnet]="0xcbe32563ed20f2dca2e4a7e917203bb3b5d6eeae2e4281328920c5524346ca41"  # Testnet address
 MODULE_ADDRESSES[devnet]="0xcbe32563ed20f2dca2e4a7e917203bb3b5d6eeae2e4281328920c5524346ca41"  # Devnet address
 

@@ -151,117 +151,61 @@ export function base64ToBytes(base64: string): number[] {
  * @returns Promise resolving to array of VAA strings
  * @throws Error if API call fails or returns invalid data
  */
+// Chỉ dùng Hermes API v1 endpoint cho VAA
 export async function fetchLatestVAA(priceFeedId: string): Promise<string[]> {
   // Validate price feed ID
   if (!isValidPriceFeedId(priceFeedId)) {
     throw new Error(`Invalid price_feed_id: expected 64-character hex string, got: ${priceFeedId}`);
   }
-
-  // Try multiple Hermes endpoints for better compatibility
-  const endpoints = [
-    `https://hermes.pyth.network/v2/updates/price/latest?ids[]=${priceFeedId}`,
-    `https://hermes.pyth.network/api/latest_vaas?ids[]=${priceFeedId}`,
-    `https://xc-mainnet.pyth.network/api/latest_vaas?ids[]=${priceFeedId}`
-  ];
-
-  for (let i = 0; i < endpoints.length; i++) {
-    const url = endpoints[i];
-    console.log(`[fetchLatestVAA] Trying endpoint ${i + 1}/${endpoints.length}:`, url);
-    
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        },
-        // Add timeout to prevent hanging
-        signal: AbortSignal.timeout(10000) // 10 second timeout
-      });
-      
-      const responseText = await response.text();
-      console.log(`[fetchLatestVAA] Response from endpoint ${i + 1}:`, response.status, responseText.slice(0, 200));
-      
-      if (!response.ok) {
-        console.warn(`[fetchLatestVAA] Endpoint ${i + 1} failed:`, response.status, response.statusText);
-        continue; // Try next endpoint
-      }
-      
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.warn(`[fetchLatestVAA] JSON parse error on endpoint ${i + 1}:`, parseError);
-        continue; // Try next endpoint
-      }
-      
-      // Handle different response formats
-      let vaas: string[] = [];
-      if (Array.isArray(data)) {
-        vaas = data;
-      } else if (data && Array.isArray(data.vaas)) {
-        vaas = data.vaas;
-      } else if (data && data.binary) {
-        // Handle v2 API response format - check encoding
-        if (data.binary.encoding === 'hex' && Array.isArray(data.binary.data)) {
-          // Convert hex strings to base64
-          vaas = data.binary.data.map((hexStr: string) => {
-            try {
-              // Remove any 0x prefix
-              const cleanHex = hexStr.startsWith('0x') ? hexStr.slice(2) : hexStr;
-              // Convert hex to bytes then to base64 (browser compatible)
-              const bytes = new Uint8Array(cleanHex.length / 2);
-              for (let i = 0; i < cleanHex.length; i += 2) {
-                bytes[i / 2] = parseInt(cleanHex.substr(i, 2), 16);
-              }
-              // Convert bytes to base64
-              const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
-              return btoa(binary);
-            } catch (error) {
-              console.warn(`[fetchLatestVAA] Failed to convert hex to base64:`, error);
-              return hexStr; // Return as-is if conversion fails
-            }
-          });
-        } else if (Array.isArray(data.binary.data)) {
-          vaas = data.binary.data;
-        }
-      } else if (data && Array.isArray(data.updates)) {
-        // Handle another possible format
-        vaas = data.updates;
-      }
-      
-      // Validate VAA data
-      if (!vaas || vaas.length === 0) {
-        console.warn(`[fetchLatestVAA] No VAA data from endpoint ${i + 1}`);
-        continue; // Try next endpoint
-      }
-
-      // Additional validation: check VAA length and format
-      const validVaas = vaas.filter(vaa => {
-        if (typeof vaa !== 'string' || vaa.length === 0) return false;
-        try {
-          // Try to decode base64 to ensure it's valid
-          atob(vaa);
-          return true;
-        } catch {
-          return false;
-        }
-      });
-
-      if (validVaas.length === 0) {
-        console.warn(`[fetchLatestVAA] No valid VAA data from endpoint ${i + 1}`);
-        continue; // Try next endpoint
-      }
-      
-      console.log(`[fetchLatestVAA] Success with endpoint ${i + 1}:`, validVaas.length, 'valid VAAs, first VAA length:', validVaas[0]?.length);
-      return validVaas;
-    } catch (error) {
-      console.warn(`[fetchLatestVAA] Error with endpoint ${i + 1}:`, error);
-      continue; // Try next endpoint
+  // Chỉ dùng duy nhất endpoint Hermes v1
+  const url = `https://hermes.pyth.network/api/latest_vaas?ids[]=${priceFeedId}`;
+  console.log(`[fetchLatestVAA] Using Hermes v1 endpoint:`, url);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      signal: AbortSignal.timeout(10000)
+    });
+    const responseText = await response.text();
+    console.log(`[fetchLatestVAA] Response:`, response.status, responseText.slice(0, 200));
+    if (!response.ok) {
+      throw new Error(`Hermes endpoint failed: ${response.status} ${response.statusText}`);
     }
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      throw new Error('Hermes trả về dữ liệu không phải JSON');
+    }
+    let vaas: string[] = [];
+    if (Array.isArray(data)) {
+      vaas = data;
+    } else if (data && Array.isArray(data.vaas)) {
+      vaas = data.vaas;
+    }
+    if (!vaas || vaas.length === 0) {
+      throw new Error('No VAA data from Hermes');
+    }
+    // Validate VAA format
+    const validVaas = vaas.filter(vaa => {
+      if (typeof vaa !== 'string' || vaa.length === 0) return false;
+      try {
+        atob(vaa);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (validVaas.length === 0) {
+      throw new Error('No valid VAA data from Hermes');
+    }
+    return validVaas;
+  } catch (error) {
+    throw new Error(`[fetchLatestVAA] Hermes error: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
-  
-  throw new Error('All Hermes API endpoints failed. Please check your network connection and try again.');
 }
 
 /**

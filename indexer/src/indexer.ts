@@ -33,7 +33,7 @@ if (GEOMI_API_KEY) {
 
 const GQL = new GraphQLClient(indexerUrl, { headers: gqlHeaders });
 const MODULE_ADDR = (process.env.MODULE_ADDR || '').toLowerCase();
-const MODULE_NAME = process.env.MODULE_NAME || 'market_core';
+const MODULE_NAME = process.env.MODULE_NAME || 'market_core_v2';
 const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '1000');
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '10000'); // 10 seconds to avoid rate limit
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '3');

@@ -31,7 +31,7 @@ async function checkPythDeployment() {
     }
     
     // Check our contract deployment
-    const ourAddress = '0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d';
+    const ourAddress = '0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d';
     const ourUrl = `https://fullnode.mainnet.aptoslabs.com/v1/accounts/${ourAddress}`;
     
     console.log(`\n🔗 Checking our contract at: ${ourAddress}`);

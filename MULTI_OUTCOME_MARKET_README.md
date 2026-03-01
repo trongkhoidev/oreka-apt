@@ -117,7 +117,7 @@ vector::push_back(&mut price_ranges, range_b);
 vector::push_back(&mut price_ranges, range_c);
 
 // Tạo market
-market_core::create_multi_outcome_market(
+market_core_v2::create_multi_outcome_market(
     &creator,
     b"BTC/USD",
     price_ranges,
@@ -132,7 +132,7 @@ market_core::create_multi_outcome_market(
 
 ```move
 // User bid vào outcome 0 (Range A: $100-$150)
-market_core::bid_multi_outcome(
+market_core_v2::bid_multi_outcome(
     &user,
     market_addr,
     0, // outcome index
@@ -141,7 +141,7 @@ market_core::bid_multi_outcome(
 );
 
 // User bid vào outcome 1 (Range B: >$150)
-market_core::bid_multi_outcome(
+market_core_v2::bid_multi_outcome(
     &user,
     market_addr,
     1, // outcome index

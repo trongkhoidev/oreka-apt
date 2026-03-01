@@ -8,7 +8,7 @@ const NETWORKS = {
   mainnet: {
     nodeUrl: 'https://fullnode.mainnet.aptoslabs.com/v1',
     faucetUrl: null,
-    moduleAddress: '0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d', // Mainnet address
+    moduleAddress: '0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d', // Mainnet address
     apiUrl: 'https://api.mainnet.aptoslabs.com/v1'
   },
   testnet: {
@@ -128,7 +128,7 @@ function updateFile(filePath, patterns, targetNetwork) {
 }
 
 function createEnvFile(network) {
-  const moduleName = network === 'mainnet' ? 'market_core_v2' : 'market_core';
+  const moduleName = network === 'mainnet' ? 'market_core_v2' : 'market_core_v2';
   const envContent = `# Network Configuration
 NEXT_PUBLIC_APTOS_NETWORK=${network}
 NEXT_PUBLIC_APTOS_NODE_URL=${NETWORKS[network].nodeUrl}

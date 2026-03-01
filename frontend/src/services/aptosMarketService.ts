@@ -1,5 +1,5 @@
 // import only what is used
-import { market_core_MODULE_ADDRESS, market_core_MODULE_NAME } from '@/config/contracts';
+import { market_core_v2_MODULE_ADDRESS, market_core_v2_MODULE_NAME } from '@/config/contracts';
 import { getAptosClient, getNetworkInfo } from '../config/network';
 // import { getPythPriceId } from '../config/geomi';
 import type { InputTransactionData } from '@aptos-labs/wallet-adapter-core';
@@ -54,6 +54,18 @@ export interface MarketInfo {
     bonus_injected?: number;
     creator: string;
     symbol?: string; // Added for pair_name mapping
+}
+
+// Helper: ensure a market resource belongs to current module address
+async function assertMarketBelongsToCurrentModule(marketAddress: string): Promise<void> {
+  const aptos = getAptosClient();
+  const resourceType = `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::Market` as `${string}::${string}::${string}`;
+  try {
+    await aptos.getAccountResource({ accountAddress: marketAddress, resourceType });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Market at ${marketAddress} does not belong to module ${market_core_v2_MODULE_ADDRESS}. Please use a market created by the current module. Detail: ${msg}`);
+  }
 }
 
 export interface DeployMarketParams {
@@ -142,7 +154,7 @@ export async function estimateDeployMarketGas(
     ];
     console.log('[estimateDeployMarketGas] arguments:', args);
     const payload = {
-      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::create_market`,
+      function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::create_market`,
       type_arguments: [],
       arguments: args
     };
@@ -261,7 +273,7 @@ export async function deployMarketWithGasSettings(
     const gasEstimate = await estimateDeployMarketGas(params, gasSpeed);
     const transaction: InputTransactionData = {
       data: {
-        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::create_market`,
+        function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::create_market`,
         typeArguments: [],
         functionArguments: [
           priceFeedIdBytes,
@@ -319,7 +331,7 @@ export async function deployMarket(
     if (priceFeedIdBytes.length !== 32) throw new Error('price_feed_id must be 32 bytes');
     const transaction: InputTransactionData = {
       data: {
-        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::create_market`,
+        function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::create_market`,
         typeArguments: [],
         functionArguments: [
           priceFeedIdBytes,
@@ -345,7 +357,7 @@ export async function deployMarket(
 }
 
 /**
- * Deploy a multi-outcome market (market_core::create_multi_outcome_market)
+ * Deploy a multi-outcome market (market_core_v2::create_multi_outcome_market)
  */
 export async function deployMultiOutcomeMarket(
   signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<unknown>,
@@ -378,7 +390,7 @@ export async function deployMultiOutcomeMarket(
   // Using wallet-adapter, we pass as functionArguments: [vector<u8>, vector<PriceRange>, fee, times]
   const transaction: InputTransactionData = {
     data: {
-      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::create_multi_outcome_market`,
+      function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::create_multi_outcome_market`,
       typeArguments: [],
       functionArguments: [
         priceFeedIdBytes,
@@ -422,7 +434,7 @@ export async function getMarketsByOwner(owner: string): Promise<MarketInfo[]> {
   try {
     const aptos = getAptosClient();
     const payload = {
-      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_markets_by_owner` as `${string}::${string}::${string}`,
+      function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_markets_by_owner` as `${string}::${string}::${string}`,
       type_arguments: [],
       arguments: [owner],
     };
@@ -472,7 +484,7 @@ export async function getMarketDetails(marketObjectAddress: string, forceRefresh
   }
   try {
     const aptos = getAptosClient();
-    const resourceType = `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::Market` as `${string}::${string}::${string}`;
+    const resourceType = `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::Market` as `${string}::${string}::${string}`;
     // Fix URL duplication: aptos.config.fullnode already includes /v1
     const baseUrl = `${aptos.config.fullnode}/accounts`;
     const url = `${baseUrl}/${marketObjectAddress}/resource/${resourceType}`;
@@ -635,7 +647,7 @@ export async function bid(
     // Use standard entry function payload; coin transfer is handled by Move contract
     const transaction: InputTransactionData = {
         data: {
-            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::bid`,
+            function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::bid`,
             typeArguments: [],
             functionArguments: [marketAddress, prediction, amountInOctas.toString(), timestampBid.toString()],
         }
@@ -658,7 +670,7 @@ export async function claim(
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
-            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::claim`,
+            function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::claim`,
             typeArguments: [],
             functionArguments: [marketAddress], 
         }
@@ -683,7 +695,7 @@ export async function claimMultiOutcome(
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
-            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::claim_multi_outcome`,
+            function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::claim_multi_outcome`,
             typeArguments: [],
             functionArguments: [marketAddress], 
         }
@@ -713,7 +725,7 @@ export async function resolveMarket(
     marketAddress: string,
     pythPriceUpdate: (number[] | Uint8Array)[]
 ): Promise<string> {
-    // Validate inputs
+    await assertMarketBelongsToCurrentModule(marketAddress);
     if (!signAndSubmitTransaction) {
         throw new Error('signAndSubmitTransaction function is required');
     }
@@ -724,26 +736,57 @@ export async function resolveMarket(
         throw new Error('Valid Pyth price update data is required');
     }
 
-    // Optional validation: ensure the VAA corresponds to market's price_feed_id
-    try {
-      const network = getNetworkInfo();
-      console.log('[resolveMarket] Using network for Pyth IDs:', network.name);
-    } catch (error) {
-      console.warn('[resolveMarket] Could not get network info:', error);
+    console.log('[resolveMarket] Starting resolution for market:', marketAddress);
+    console.log('[resolveMarket] Pyth price update length:', pythPriceUpdate.length);
+
+    // Fetch market info to determine type
+    const marketInfo = await getMarketDetails(marketAddress);
+    if (!marketInfo || !marketInfo.market_type || typeof marketInfo.market_type.is_binary !== 'boolean') {
+        throw new Error('Cannot determine market type. Please check the market address or try again.');
+    }
+    
+    const isBinary = marketInfo.market_type.is_binary;
+    console.log('[resolveMarket] Market type determined:', { isBinary, marketType: marketInfo.market_type });
+
+    // Debug market state in detail
+    console.log('[resolveMarket] Market state validation:', {
+        marketAddress,
+        isResolved: marketInfo.is_resolved,
+        maturityTime: marketInfo.maturity_time,
+        biddingEndTime: marketInfo.bidding_end_time,
+        currentTime: Math.floor(Date.now() / 1000),
+        totalAmount: marketInfo.total_amount,
+        longAmount: marketInfo.long_amount,
+        shortAmount: marketInfo.short_amount,
+        priceFeedId: marketInfo.price_feed_id,
+        creator: marketInfo.creator,
+        feePercentage: marketInfo.fee_percentage
+    });
+
+    // Validate market state before resolving
+    if (marketInfo.is_resolved) {
+        throw new Error('Market is already resolved');
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const maturityTime = Number(marketInfo.maturity_time);
+    if (now < maturityTime) {
+        throw new Error(`Market has not reached maturity time yet. Current: ${now}, Maturity: ${maturityTime}`);
+    }
+
+    // Additional validation for market readiness
+    if (Number(marketInfo.total_amount) === 0) {
+        console.warn('[resolveMarket] Warning: Market has no bids');
     }
 
     // Normalize payload strictly to vector<vector<u8>> expected by Move:
-    // Each inner element MUST be a byte array where every value is 0..255 and numeric
     const normalizedUpdates: number[][] = pythPriceUpdate.map((chunk, chunkIdx) => {
       if (!chunk || chunk.length === 0) {
         throw new Error(`Empty VAA chunk at index ${chunkIdx}`);
       }
-
       if (chunk instanceof Uint8Array) {
         return Array.from(chunk);
       }
-      
-      // Handle both number[] and string[] arrays
       const normalizedChunk = (chunk as (number | string)[]).map((v: unknown, byteIdx) => {
         const num = Number(v);
         if (isNaN(num) || num < 0 || num > 255) {
@@ -751,76 +794,95 @@ export async function resolveMarket(
         }
         return num;
       });
-      
-      console.log(`[resolveMarket] Normalized chunk[${chunkIdx}]:`, {
-        originalLength: chunk.length,
-        normalizedLength: normalizedChunk.length,
-        firstBytes: normalizedChunk.slice(0, 8),
-        lastBytes: normalizedChunk.slice(-8)
-      });
-      
       return normalizedChunk;
     });
+
+    const totalBytes = normalizedUpdates.reduce((sum, arr) => sum + arr.length, 0);
+    console.log('[resolveMarket] Normalized updates prepared:', {
+        updateCount: normalizedUpdates.length,
+        firstUpdateLength: normalizedUpdates[0]?.length,
+        totalBytes
+    });
+
+    // Check for VAA size limits to avoid gas issues
+    if (totalBytes > 3000) {
+        console.warn('[resolveMarket] VAA data is very large:', totalBytes, 'bytes. This may cause gas issues.');
+    }
+    
+    if (normalizedUpdates.length > 5) {
+        console.warn('[resolveMarket] Many VAA updates:', normalizedUpdates.length, '. This may cause gas issues.');
+    }
+
+    // Choose correct Move function based on market type
+    const moveFunction = isBinary
+      ? `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::resolve_market` as `${string}::${string}::${string}`
+      : `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::resolve_multi_market` as `${string}::${string}::${string}`;
+
+    console.log('[resolveMarket] Using Move function:', moveFunction);
+
     const transaction: InputTransactionData = {
         data: {
-            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::resolve_market`,
+            function: moveFunction,
             typeArguments: [],
             functionArguments: [marketAddress, normalizedUpdates],
+        },
+        options: {
+            maxGasAmount: 2000000, // Increase gas limit for large VAA data
+            gasUnitPrice: 100,     // Standard gas price
         }
     };
 
+    // Estimate Pyth update fee before submitting transaction
     try {
-      console.log('[resolveMarket] Submitting transaction with normalized updates:', {
-        marketAddress,
-        updateChunks: normalizedUpdates.length,
-        totalBytes: normalizedUpdates.reduce((sum, chunk) => sum + chunk.length, 0),
-        firstChunkLength: normalizedUpdates[0]?.length,
-        firstChunkFirst8: normalizedUpdates[0]?.slice(0, 8),
-        firstChunkLast8: normalizedUpdates[0]?.slice(-8)
-      });
-
-      // Log transaction details for debugging
-      console.log('[resolveMarket] Transaction details:', {
-        function: 'resolve_market',
-        typeArguments: transaction.data.typeArguments,
-        functionArguments: [
-          transaction.data.functionArguments[0], // market address
-          `[${normalizedUpdates.length} chunks with ${normalizedUpdates.reduce((sum, chunk) => sum + chunk.length, 0)} total bytes]`
-        ]
-      });
-
-      const response = await signAndSubmitTransaction(transaction);
-      
-      if (response && typeof response === 'object' && 'hash' in response) {
-        console.log('[resolveMarket] Transaction successful, hash:', (response as { hash: string }).hash);
-        return (response as { hash: string }).hash;
-      }
-      
-      throw new Error('Transaction did not return a valid hash');
-    } catch (error) {
-      console.error('[resolveMarket] Transaction failed:', error);
-      
-      // Enhanced error logging
-      if (error instanceof Error) {
-        console.error('[resolveMarket] Error details:', {
-          message: error.message,
-          stack: error.stack,
-          name: error.name
-        });
+        const aptos = getAptosClient();
         
-        // Check for specific error patterns
-        if (error.message.includes('Simulation error')) {
-          console.error('[resolveMarket] Simulation error detected - this usually means the transaction would fail on-chain');
+        // Simulate to get Pyth update fee
+        console.log('[resolveMarket] Estimating Pyth update fee...');
+        const feeEstimatePayload = {
+            function: "0x7e783b349d3e89cf5931af376ebeadbfab855b3fa239b7ada8f5a92fbea6b387::pyth::get_update_fee" as `${string}::${string}::${string}`,
+            type_arguments: [],
+            arguments: [normalizedUpdates]
+        };
+        
+        let estimatedFee = 0;
+        try {
+            const feeResult = await aptos.view({ payload: feeEstimatePayload });
+            estimatedFee = Number(feeResult[0]) || 0;
+            console.log('[resolveMarket] Estimated Pyth update fee:', estimatedFee, 'octas');
+        } catch (feeError) {
+            console.warn('[resolveMarket] Could not estimate Pyth fee, proceeding with default:', feeError);
+            // Default fee estimate - usually around 1 APT
+            estimatedFee = 100000000; // 1 APT in octas
         }
-        if (error.message.includes('Generic error')) {
-          console.error('[resolveMarket] Generic error detected - this could be due to VAA format or contract issues');
+
+        console.log('[resolveMarket] Transaction prepared:', {
+            function: moveFunction,
+            marketAddress,
+            pythUpdateCount: normalizedUpdates.length,
+            estimatedPythFee: estimatedFee,
+            estimatedPythFeeAPT: (estimatedFee / 1e8).toFixed(4)
+        });
+
+        const response = await signAndSubmitTransaction(transaction);
+        if (response && typeof response === 'object' && 'hash' in response) {
+            console.log('[resolveMarket] Transaction successful:', (response as { hash: string }).hash);
+            return (response as { hash: string }).hash;
         }
-        if (error.message.includes('E_WRONG_VERSION')) {
-          console.error('[resolveMarket] VAA version error - the VAA data format is not supported');
+        throw new Error('Transaction did not return a valid hash');
+    } catch (error) {
+        console.error('[resolveMarket] Transaction failed:', error);
+        
+        // Provide more specific error messages
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        if (errorMessage.includes('INSUFFICIENT_BALANCE') || errorMessage.includes('insufficient')) {
+            throw new Error('Insufficient APT balance to pay for Pyth price update fee. Please ensure you have at least 1 APT in your wallet.');
+        } else if (errorMessage.includes('EMARKET_RESOLVED')) {
+            throw new Error('Market has already been resolved.');
+        } else if (errorMessage.includes('EMARKET_NOT_RESOLVED')) {
+            throw new Error('Market has not reached maturity time yet.');
+        } else {
+            throw new Error(`Market resolution failed: ${errorMessage}`);
         }
-      }
-      
-      throw new Error(`Market resolution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 }
 
@@ -830,7 +892,7 @@ export async function withdrawFee(
 ): Promise<string> {
     const transaction: InputTransactionData = {
         data: {
-            function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::withdraw_fee`,
+            function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::withdraw_fee`,
             typeArguments: [],
             functionArguments: [marketAddress], 
         }
@@ -847,7 +909,7 @@ export async function getAllMarkets(): Promise<MarketInfo[]> {
   try {
     const aptos = getAptosClient();
     const payload = {
-      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_all_markets` as `${string}::${string}::${string}`,
+      function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_all_markets` as `${string}::${string}::${string}`,
       type_arguments: [],
       arguments: [],
     };
@@ -882,7 +944,7 @@ export async function getUserBid(userAddress: string, marketAddress: string): Pr
   const aptos = getAptosClient();
   const result = await aptos.view({
     payload: {
-      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_position`,
+      function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_user_position`,
       typeArguments: [],
       functionArguments: [userAddress, marketAddress],
     }
@@ -933,8 +995,8 @@ export async function getUserMultiOutcomePosition(userAddress: string, marketAdd
   console.log('[getUserMultiOutcomePosition] Called with:', { 
     userAddress, 
     marketAddress,
-    moduleAddress: market_core_MODULE_ADDRESS,
-    functionName: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_multi_outcome_position`
+    moduleAddress: market_core_v2_MODULE_ADDRESS,
+    functionName: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_user_multi_outcome_position`
   });
   
   // Add delay to prevent rate limiting
@@ -943,7 +1005,7 @@ export async function getUserMultiOutcomePosition(userAddress: string, marketAdd
   // Debug: Check if this is the same address that bet
   console.log('[getUserMultiOutcomePosition] Address comparison:', {
     currentUserAddress: userAddress,
-    isCurrentUser: userAddress === '0x374da5722cb2792cec580c6b782fb733ef597a892058f0d3acddac8388b8a46d',
+    isCurrentUser: userAddress === '0x288411cf0c7d7fe21fde828a8958f1971934dd9237fb69be36e15470b857449d',
     addressLength: userAddress.length,
     addressPrefix: userAddress.slice(0, 10) + '...' + userAddress.slice(-10),
     addressValidation: {
@@ -958,7 +1020,7 @@ export async function getUserMultiOutcomePosition(userAddress: string, marketAdd
   try {
     const result = await aptos.view({
       payload: {
-        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_multi_outcome_position`,
+        function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_user_multi_outcome_position`,
         typeArguments: [],
         functionArguments: [userAddress, marketAddress],
       }
@@ -974,8 +1036,8 @@ export async function getUserMultiOutcomePosition(userAddress: string, marketAdd
       console.log('[getUserMultiOutcomePosition] Debugging empty result:', {
         userAddress,
         marketAddress,
-        moduleAddress: market_core_MODULE_ADDRESS,
-        functionCall: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_multi_outcome_position`,
+        moduleAddress: market_core_v2_MODULE_ADDRESS,
+        functionCall: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_user_multi_outcome_position`,
         possibleIssues: [
           'User address format incorrect',
           'Market address incorrect', 
@@ -1126,7 +1188,7 @@ export async function getAllBettingAddresses(marketAddress: string): Promise<voi
     // Try to get all bids by checking the market resource
     const result = await aptos.view({
       payload: {
-        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_market_info`,
+        function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_market_info`,
         typeArguments: [],
         functionArguments: [marketAddress],
       }
@@ -1138,7 +1200,7 @@ export async function getAllBettingAddresses(marketAddress: string): Promise<voi
     try {
       const marketResource = await aptos.getAccountResource({
         accountAddress: marketAddress,
-        resourceType: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::Market`
+        resourceType: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::Market`
       });
       console.log('[getAllBettingAddresses] Market resource:', marketResource);
       
@@ -1156,7 +1218,7 @@ export async function getAllBettingAddresses(marketAddress: string): Promise<voi
     try {
       const allMarketsResult = await aptos.view({
         payload: {
-          function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_all_markets`,
+          function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_all_markets`,
           typeArguments: [],
           functionArguments: [],
         }
@@ -1212,7 +1274,7 @@ export async function testGetUserMultiOutcomePosition(userAddress: string, marke
     console.log('[TEST] Making API call...');
     const result = await aptos.view({
       payload: {
-        function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_user_multi_outcome_position`,
+        function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_user_multi_outcome_position`,
         typeArguments: [],
         functionArguments: [userAddress, marketAddress],
       }
@@ -1229,7 +1291,7 @@ export async function testGetUserMultiOutcomePosition(userAddress: string, marke
     try {
       const marketResource = await aptos.getAccountResource({
         accountAddress: marketAddress,
-        resourceType: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::Market`
+        resourceType: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::Market`
       });
       console.log('[TEST] Market resource:', marketResource);
       
@@ -1247,7 +1309,7 @@ export async function testGetUserMultiOutcomePosition(userAddress: string, marke
     try {
       const marketInfoResult = await aptos.view({
         payload: {
-          function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_market_info`,
+          function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_market_info`,
           typeArguments: [],
           functionArguments: [marketAddress],
         }
@@ -1261,7 +1323,7 @@ export async function testGetUserMultiOutcomePosition(userAddress: string, marke
     try {
       const allMarketsResult = await aptos.view({
         payload: {
-          function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::get_all_markets`,
+          function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::get_all_markets`,
           typeArguments: [],
           functionArguments: [],
         }
@@ -1368,7 +1430,7 @@ export async function bidMultiOutcome(
 ): Promise<string> {
   const transaction: InputTransactionData = {
     data: {
-      function: `${market_core_MODULE_ADDRESS}::${market_core_MODULE_NAME}::bid_multi_outcome`,
+      function: `${market_core_v2_MODULE_ADDRESS}::${market_core_v2_MODULE_NAME}::bid_multi_outcome`,
       typeArguments: [],
       functionArguments: [
         marketAddress,
@@ -1405,4 +1467,4 @@ export async function getMarketCount(): Promise<number> {
   } catch {
     return 0;
   }
-} 
+}
